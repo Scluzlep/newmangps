@@ -6,6 +6,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -14,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scluzlep.newmangps.data.model.DevicePosition
+import com.scluzlep.newmangps.data.api.AmapPlace
 import com.scluzlep.newmangps.data.util.CoordinateTransform
 import com.scluzlep.newmangps.ui.theme.*
 import kotlinx.coroutines.delay
@@ -23,9 +26,15 @@ import kotlinx.coroutines.delay
 fun TrackingMapScreen(
     position: DevicePosition?,
     address: String,
+    places: List<AmapPlace>,
+    focusPoint: CoordinateTransform.LatLng?,
     onBack: () -> Unit,
-    onCommandClick: (String) -> Unit
+    onCommandClick: (String) -> Unit,
+    onSearchPlace: (String) -> Unit,
+    onSelectPlace: (AmapPlace) -> Unit,
+    onSavePlace: (AmapPlace) -> Unit
 ) {
+    var searchText by remember { mutableStateOf("") }
     var nowSeconds by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -67,17 +76,53 @@ fun TrackingMapScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (position != null &&
+            if (focusPoint != null || (position != null &&
                 position.rawLat in -85.0..85.0 && position.rawLon in -180.0..180.0 &&
                 position.rawLat != 0.0 && position.rawLon != 0.0
-            ) {
-                OsmMap(
-                    points = listOf(CoordinateTransform.LatLng(position.rawLat, position.rawLon)),
+            )) {
+                AmapJsMap(
+                    points = listOfNotNull(focusPoint ?: position?.gcjLatLng),
                     markerIndex = 0
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("暂无有效定位坐标")
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        placeholder = { Text("搜索地点") }
+                    )
+                    IconButton(onClick = { onSearchPlace(searchText) }, enabled = searchText.isNotBlank()) {
+                        Icon(Icons.Default.Search, contentDescription = "搜索地点")
+                    }
+                }
+                places.take(4).forEach { place ->
+                    Card(onClick = { onSelectPlace(place) }, modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(place.name, style = MaterialTheme.typography.titleSmall)
+                                if (place.address.isNotBlank()) Text(place.address, style = MaterialTheme.typography.bodySmall)
+                            }
+                            IconButton(onClick = { onSavePlace(place) }) {
+                                Icon(Icons.Default.BookmarkAdd, contentDescription = "收藏地点")
+                            }
+                        }
+                    }
                 }
             }
 

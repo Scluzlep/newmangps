@@ -14,8 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scluzlep.newmangps.data.model.TrackPoint
-import com.scluzlep.newmangps.data.util.CoordinateTransform
-import com.scluzlep.newmangps.ui.screens.map.OsmMap
+import com.scluzlep.newmangps.ui.screens.map.AmapJsMap
 import com.scluzlep.newmangps.ui.theme.*
 import kotlinx.coroutines.delay
 
@@ -81,10 +80,8 @@ fun TrackReplayScreen(
                 .padding(paddingValues)
         ) {
             if (trackPoints.isNotEmpty()) {
-                OsmMap(
-                    points = trackPoints.map {
-                        CoordinateTransform.LatLng(it.rawLat, it.rawLon)
-                    },
+                AmapJsMap(
+                    points = trackPoints.map { it.gcjLatLng },
                     markerIndex = currentIndex
                 )
             } else {

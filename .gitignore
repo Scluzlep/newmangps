@@ -5,6 +5,7 @@
 
 # Gradle
 .gradle/
+.gradle-home-codex/
 build/
 app/build/
 

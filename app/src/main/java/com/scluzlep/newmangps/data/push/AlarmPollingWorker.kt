@@ -21,40 +21,51 @@ class AlarmPollingWorker(
 
     override suspend fun doWork(): Result {
         val user = inputData.getString("USER") ?: return Result.failure()
+        val teids = inputData.getStringArray("TEIDS")?.filter(String::isNotBlank).orEmpty()
+        if (teids.isEmpty()) return Result.failure()
         if (!AlarmNotificationManager.canNotify(context)) return Result.success()
         val prefs = context.getSharedPreferences("alarm_polling", Context.MODE_PRIVATE)
-        val key = user.hashCode().toString()
         val now = System.currentTimeMillis() / 1000
-        val start = prefs.getLong("cursor_$key", now).coerceAtLeast(now - 86400)
-        val seenKey = "seen_$key"
-        val seen = prefs.getStringSet(seenKey, emptySet()).orEmpty().toMutableSet()
-        var offset = 0
-        while (offset < 10_000) {
-            val page = repository.pollAlarmQueue(user, (start - 60).coerceAtLeast(0), now, offset)
-                .getOrElse { return Result.retry() }
-            for (alarm in page.alarms.sortedBy { it.timeSeconds }) {
-                if (alarm.timeSeconds < start || !seen.add(alarm.id)) continue
-                val shown = AlarmNotificationManager.showAlarmNotification(
-                    context = context,
-                    id = alarm.id.hashCode(),
-                    title = "纽曼卫士报警通知 [${alarm.teid}]",
-                    content = alarm.content
-                )
-                if (!shown) return Result.retry()
+        for (teid in teids) {
+            val key = "${user.hashCode()}_${teid.hashCode()}"
+            val start = prefs.getLong("cursor_$key", now).coerceAtLeast(now - 86400)
+            val seenKey = "seen_$key"
+            val seen = prefs.getStringSet(seenKey, emptySet()).orEmpty().toMutableSet()
+            var offset = 0
+            while (offset < 10_000) {
+                val page = repository.pollAlarmQueue(user, teid, (start - 60).coerceAtLeast(0), now, offset)
+                    .getOrElse { return Result.retry() }
+                for (alarm in page.alarms.sortedBy { it.timeSeconds }) {
+                    if (alarm.timeSeconds < start || !seen.add(alarm.id)) continue
+                    val shown = AlarmNotificationManager.showAlarmNotification(
+                        context = context,
+                        id = alarm.id.hashCode(),
+                        title = "纽曼卫士报警通知 [${alarm.teid}]",
+                        content = alarm.content
+                    )
+                    if (!shown) return Result.retry()
+                }
+                if (!page.hasMore) break
+                offset += 200
             }
-            if (!page.hasMore) break
-            offset += 200
+            if (offset >= 10_000) return Result.retry()
+            prefs.edit()
+                .putLong("cursor_$key", now)
+                .putStringSet(seenKey, seen.toList().takeLast(300).toSet())
+                .apply()
         }
-        if (offset >= 10_000) return Result.retry()
-        prefs.edit()
-            .putLong("cursor_$key", now)
-            .putStringSet(seenKey, seen.toList().takeLast(300).toSet())
-            .apply()
         return Result.success()
     }
 
     companion object {
-        fun schedule(context: Context, user: String) {
+        fun cancel(context: Context, user: String) {
+            val prefs = context.getSharedPreferences("alarm_polling", Context.MODE_PRIVATE)
+            val key = user.hashCode().toString()
+            WorkManager.getInstance(context).cancelUniqueWork("alarm_$key")
+            prefs.edit().remove("active_work").apply()
+        }
+
+        fun schedule(context: Context, user: String, teids: List<String>) {
             val prefs = context.getSharedPreferences("alarm_polling", Context.MODE_PRIVATE)
             val key = user.hashCode().toString()
             val previous = prefs.getString("active_work", null)
@@ -66,7 +77,7 @@ class AlarmPollingWorker(
             }
             prefs.edit().putString("active_work", key).apply()
             val request = PeriodicWorkRequestBuilder<AlarmPollingWorker>(15, TimeUnit.MINUTES)
-                .setInputData(workDataOf("USER" to user))
+                .setInputData(workDataOf("USER" to user, "TEIDS" to teids.toTypedArray()))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
                 )

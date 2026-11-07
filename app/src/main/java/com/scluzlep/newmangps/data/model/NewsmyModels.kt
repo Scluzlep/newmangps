@@ -24,11 +24,44 @@ data class ApiResponse(
     }
 }
 
-data class DeviceSummary(val teid: String, val name: String) {
+data class DeviceSummary(
+    val teid: String,
+    val name: String,
+    val mileageInitKm: Double = 0.0
+) {
     companion object {
         fun fromRow(row: Map<String, String>): DeviceSummary? {
             val teid = row["strTEID"]?.takeIf { it.isNotBlank() } ?: return null
-            return DeviceSummary(teid, row["strCarNum"].orEmpty().ifBlank { teid })
+            return DeviceSummary(
+                teid = teid,
+                name = row["strCarNum"].orEmpty().ifBlank { teid },
+                mileageInitKm = row["nMileageInit"]?.toDoubleOrNull() ?: 0.0
+            )
+        }
+    }
+}
+
+data class SubUserInfo(
+    val username: String,
+    val displayName: String,
+    val phone: String,
+    val company: String,
+    val address: String,
+    val email: String,
+    val remark: String
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>): SubUserInfo? {
+            val username = row["strUser"]?.takeIf { it.isNotBlank() } ?: return null
+            return SubUserInfo(
+                username = username,
+                displayName = row["strName"].orEmpty(),
+                phone = row["strTel"].orEmpty(),
+                company = row["strCompany"].orEmpty(),
+                address = row["strAddress"].orEmpty(),
+                email = row["strEmail"].orEmpty(),
+                remark = row["strRemark"].orEmpty()
+            )
         }
     }
 }
@@ -83,9 +116,9 @@ data class DevicePosition(
         fun fromRow(row: Map<String, String>): DevicePosition {
             return DevicePosition(
                 teid = row["strTEID"] ?: "",
-                timeSeconds = row["nTime"]?.toLongOrNull() ?: 0L,
-                rawLon = row["dbLon"]?.toDoubleOrNull() ?: 0.0,
-                rawLat = row["dbLat"]?.toDoubleOrNull() ?: 0.0,
+                timeSeconds = parseDeviceTime(row["nTime"] ?: row["dTime"]),
+                rawLon = parseCoordinate(row, "dbLon", "nLon"),
+                rawLat = parseCoordinate(row, "dbLat", "nLat"),
                 speed = (row["nSpeed"]?.toIntOrNull() ?: 0).coerceAtLeast(0),
                 direction = row["nDirection"]?.toIntOrNull() ?: 0,
                 gsmSignal = row["nGSMSignal"]?.toIntOrNull() ?: 0,
@@ -172,9 +205,9 @@ data class TrackPoint(
             return TrackPoint(
                 id = row["nID"] ?: "",
                 teid = row["strTEID"] ?: "",
-                timeSeconds = row["nTime"]?.toLongOrNull() ?: 0L,
-                rawLon = row["dbLon"]?.toDoubleOrNull() ?: 0.0,
-                rawLat = row["dbLat"]?.toDoubleOrNull() ?: 0.0,
+                timeSeconds = parseDeviceTime(row["nTime"] ?: row["dTime"]),
+                rawLon = parseCoordinate(row, "dbLon", "nLon"),
+                rawLat = parseCoordinate(row, "dbLat", "nLat"),
                 speed = (row["nSpeed"]?.toIntOrNull() ?: 0).coerceAtLeast(0),
                 direction = row["nDirection"]?.toIntOrNull() ?: 0,
                 mileage = row["nMileage"]?.toIntOrNull() ?: 0,
@@ -238,5 +271,24 @@ private fun formatTimestamp(seconds: Long): String {
     if (seconds <= 0) return "--"
     val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     return sdf.format(Date(seconds * 1000))
+}
+
+private fun parseCoordinate(row: Map<String, String>, decimalKey: String, scaledKey: String): Double {
+    row[decimalKey]?.toDoubleOrNull()?.let { if (it in -180.0..180.0) return it }
+    val scaled = row[scaledKey]?.toDoubleOrNull() ?: return 0.0
+    return if (kotlin.math.abs(scaled) > 180.0) scaled / 10_000_000.0 else scaled
+}
+
+private fun parseDeviceTime(value: String?): Long {
+    val number = value?.toLongOrNull()
+    if (number != null) return if (number > 10_000_000_000L) number / 1000 else number
+    if (value.isNullOrBlank()) return 0L
+    val formats = listOf("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss")
+    for (format in formats) {
+        runCatching {
+            return SimpleDateFormat(format, Locale.getDefault()).parse(value)?.time?.div(1000) ?: 0L
+        }
+    }
+    return 0L
 }
 

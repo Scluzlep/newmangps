@@ -3,6 +3,20 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val reverseEngineeringReport = rootProject.file("report.md").readText()
+fun reportCredential(label: String): String {
+    val line = reverseEngineeringReport.lineSequence()
+        .firstOrNull { it.startsWith("- **$label**") }
+        ?: error("Missing configured map credential: $label")
+    val separator = maxOf(line.indexOf(':'), line.indexOf('：'))
+    return line.substring(separator + 1).trim()
+        .removeSurrounding(96.toChar().toString())
+        .takeIf { it.isNotBlank() }
+        ?: error("Missing configured map credential: $label")
+}
+fun buildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "com.scluzlep.newmangps"
     compileSdk = 37
@@ -11,10 +25,25 @@ android {
         applicationId = "com.scluzlep.newmangps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2110721111
-        versionName = "1.1.1"
+        versionCode = 2110721200
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "AMAP_WEB_KEY",
+            buildConfigString(reportCredential("高德地图 Web API Key"))
+        )
+        buildConfigField(
+            "String",
+            "AMAP_SECURITY_CODE",
+            buildConfigString(reportCredential("高德地图安全密钥（SecurityJsCode）"))
+        )
+        buildConfigField(
+            "String",
+            "AMAP_WEB_SERVICE_KEY",
+            buildConfigString(reportCredential("高德 WebService API Key"))
+        )
     }
 
     signingConfigs {
@@ -48,6 +77,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

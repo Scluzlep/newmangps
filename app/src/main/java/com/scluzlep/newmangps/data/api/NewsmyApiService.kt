@@ -11,7 +11,7 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 class NewsmyApiService(
-    private val serverUrl: String = NewsmySigner.DEFAULT_SERVER
+    @Volatile private var serverUrl: String = NewsmySigner.DEFAULT_SERVER
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -19,6 +19,11 @@ class NewsmyApiService(
         .build()
 
     private val gson = Gson()
+
+    fun setServerUrl(url: String) {
+        require(url.startsWith("https://") || url.startsWith("http://"))
+        serverUrl = url.trimEnd('/')
+    }
 
     suspend fun executeRpc(
         user: String,
@@ -44,13 +49,14 @@ class NewsmyApiService(
         }
     }
 
-    suspend fun executeCommand(user: String, teid: String, command: String): Int =
+    suspend fun executeCommand(user: String, teid: String, command: String, parameter: String = ""): Int =
         withContext(Dispatchers.IO) {
             val params = NewsmySigner.buildCommandParams(
                 serverUrl = serverUrl,
                 user = user,
                 command = command,
-                teid = teid
+                teid = teid,
+                parameter = parameter
             )
             val response = gson.fromJson(post(params), JsonObject::class.java)
                 ?: throw IllegalStateException("Invalid command response")

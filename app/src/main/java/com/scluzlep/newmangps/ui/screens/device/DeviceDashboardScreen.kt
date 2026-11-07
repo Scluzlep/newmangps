@@ -35,6 +35,7 @@ fun DeviceDashboardScreen(
     detail: DeviceDetail?,
     devices: List<DeviceSummary>,
     selectedTeid: String,
+    canManageAccount: Boolean,
     fences: List<GeofenceItem>,
     fencesFailed: Boolean,
     address: String,
@@ -45,6 +46,7 @@ fun DeviceDashboardScreen(
     onNavigateTracking: () -> Unit,
     onNavigateTrackHistory: () -> Unit,
     onNavigateGeofence: () -> Unit,
+    onManageAccount: () -> Unit,
     onDeviceCommand: (String) -> Unit
 ) {
     var nowSeconds by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
@@ -277,11 +279,23 @@ fun DeviceDashboardScreen(
                 )
                 ActionCard(
                     title = "设备指令",
-                    subtitle = "远程重启",
+                    subtitle = "定位与设备设置",
                     icon = Icons.Default.SettingsRemote,
                     color = Color(0xFFA55EEA),
                     modifier = Modifier.weight(1f),
-                    onClick = { onDeviceCommand("CDeviceRestart") }
+                    onClick = { onDeviceCommand("settings") }
+                )
+            }
+
+            if (canManageAccount) {
+                Spacer(modifier = Modifier.height(12.dp))
+                ActionCard(
+                    title = "账户管理",
+                    subtitle = "子账号与密码",
+                    icon = Icons.Default.AccountCircle,
+                    color = HyperBlue,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onManageAccount
                 )
             }
 
