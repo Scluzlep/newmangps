@@ -11,7 +11,7 @@ android {
         applicationId = "com.scluzlep.newmangps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2110721101
+        versionCode = 2110721110
         versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
