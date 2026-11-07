@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -84,7 +85,7 @@ fun DeviceDashboardScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "型号: ${detail?.model?.ifEmpty { "通用GPS定位器" } ?: "通用GPS定位器"}",
+                            text = "型号: ${detail?.deviceModel?.ifEmpty { "通用GPS定位器" } ?: "通用GPS定位器"}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
