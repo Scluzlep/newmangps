@@ -23,6 +23,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NewmanGPS-HyperOS"
+rootProject.name = "NewmanGPS"
 include(":app")
 
