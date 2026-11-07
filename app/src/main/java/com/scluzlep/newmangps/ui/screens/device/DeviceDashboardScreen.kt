@@ -45,6 +45,7 @@ fun DeviceDashboardScreen(
     onSelectDevice: (DeviceSummary) -> Unit,
     onNavigateTracking: () -> Unit,
     onNavigateTrackHistory: () -> Unit,
+    onNavigateAlarms: () -> Unit,
     onNavigateGeofence: () -> Unit,
     onManageAccount: () -> Unit,
     onDeviceCommand: (String) -> Unit
@@ -286,6 +287,16 @@ fun DeviceDashboardScreen(
                     onClick = { onDeviceCommand("settings") }
                 )
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            ActionCard(
+                title = "历史告警",
+                subtitle = "查看设备报警记录",
+                icon = Icons.Default.NotificationsActive,
+                color = HyperRed,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onNavigateAlarms
+            )
 
             if (canManageAccount) {
                 Spacer(modifier = Modifier.height(12.dp))

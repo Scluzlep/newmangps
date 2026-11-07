@@ -515,6 +515,26 @@ class NewsmyRepository(
         }
     }
 
+    suspend fun getTrackAlarms(
+        teid: String,
+        startTimeSec: Long,
+        endTimeSec: Long,
+        offset: Int = 0,
+        limit: Int = 2000
+    ): Result<List<AlarmItem>> {
+        val user = _currentUser.value ?: return Result.failure(IllegalStateException("尚未登录"))
+        return runCatching {
+            val response = apiService.executeRpc(
+                user,
+                "Proc_GetTrackAlarm",
+                listOf(teid, startTimeSec, endTimeSec, offset, limit),
+                field = "strTEID,nTime,nAlarmState,strOther"
+            )
+            requireOk(response)
+            response.toRows().mapNotNull(AlarmItem::fromRow)
+        }
+    }
+
     suspend fun sendDeviceCommand(teid: String, action: String, parameter: String = ""): Result<Unit> {
         val user = _currentUser.value ?: return Result.failure(IllegalStateException("尚未登录"))
         val code = when (action) {

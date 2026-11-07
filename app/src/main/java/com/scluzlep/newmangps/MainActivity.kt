@@ -29,6 +29,7 @@ import com.scluzlep.newmangps.data.model.DevicePosition
 import com.scluzlep.newmangps.data.model.DeviceSummary
 import com.scluzlep.newmangps.data.model.GeofenceItem
 import com.scluzlep.newmangps.data.model.SubUserInfo
+import com.scluzlep.newmangps.data.model.AlarmItem
 import com.scluzlep.newmangps.data.model.TrackPoint
 import com.scluzlep.newmangps.data.api.AmapPlace
 import com.scluzlep.newmangps.data.util.CoordinateTransform
@@ -36,6 +37,7 @@ import com.scluzlep.newmangps.data.repository.NewsmyRepository
 import com.scluzlep.newmangps.data.push.AlarmPollingWorker
 import com.scluzlep.newmangps.ui.screens.device.DeviceDashboardScreen
 import com.scluzlep.newmangps.ui.screens.account.AccountManagementScreen
+import com.scluzlep.newmangps.ui.screens.alarm.AlarmHistoryScreen
 import com.scluzlep.newmangps.ui.screens.login.LoginScreen
 import com.scluzlep.newmangps.ui.screens.map.TrackingMapScreen
 import com.scluzlep.newmangps.ui.screens.track.TrackReplayScreen
@@ -64,6 +66,10 @@ class MainActivity : ComponentActivity() {
                 var fencesState by remember { mutableStateOf<List<GeofenceItem>>(emptyList()) }
                 var fencesFailed by remember { mutableStateOf(false) }
                 var trackPointsState by remember { mutableStateOf<List<TrackPoint>>(emptyList()) }
+                var alarmHistory by remember { mutableStateOf<List<AlarmItem>>(emptyList()) }
+                var alarmHistoryError by remember { mutableStateOf<String?>(null) }
+                var alarmHistoryLoading by remember { mutableStateOf(false) }
+                var alarmPeriodHours by remember { mutableIntStateOf(24) }
                 var accountUsers by remember { mutableStateOf<List<SubUserInfo>>(emptyList()) }
                 var accountProfile by remember { mutableStateOf<SubUserInfo?>(null) }
                 var accountLoading by remember { mutableStateOf(false) }
@@ -160,6 +166,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                fun loadAlarmHistory(hours: Int = alarmPeriodHours) {
+                    alarmPeriodHours = hours
+                    scope.launch {
+                        alarmHistoryLoading = true
+                        alarmHistoryError = null
+                        val end = System.currentTimeMillis() / 1000
+                        val result = repository.getTrackAlarms(currentImei, end - hours * 3600L, end)
+                        alarmHistory = result.getOrNull().orEmpty()
+                        alarmHistoryError = result.exceptionOrNull()?.message
+                        alarmHistoryLoading = false
+                    }
+                }
+
                 NavHost(
                     navController = navController,
                     startDestination = "login"
@@ -244,6 +263,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onNavigateTracking = { navController.navigate("tracking") },
                             onNavigateTrackHistory = { navController.navigate("replay") },
+                            onNavigateAlarms = { loadAlarmHistory(); navController.navigate("alarms") },
                             onNavigateGeofence = { showFences = true },
                             onManageAccount = { loadAccountUsers(); navController.navigate("account") },
                             onDeviceCommand = { pendingCommand = it }
@@ -346,6 +366,18 @@ class MainActivity : ComponentActivity() {
                                     popUpTo("dashboard") { inclusive = true }
                                 }
                             }
+                        )
+                    }
+
+                    composable("alarms") {
+                        AlarmHistoryScreen(
+                            alarms = alarmHistory,
+                            periodHours = alarmPeriodHours,
+                            loading = alarmHistoryLoading,
+                            errorMessage = alarmHistoryError,
+                            onBack = { navController.popBackStack() },
+                            onRefresh = { loadAlarmHistory() },
+                            onPeriodSelected = { loadAlarmHistory(it) }
                         )
                     }
 
