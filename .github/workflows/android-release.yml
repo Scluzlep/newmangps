@@ -32,10 +32,13 @@ jobs:
 
       - name: Build installable APK
         env:
-          SIGNING_STORE_BASE64: ${{ secrets.SIGNING_STORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SIGNING_STORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 || secrets.SIGNING_STORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           chmod +x gradlew

@@ -22,9 +22,9 @@ android {
         create("ciRelease") {
             System.getenv("ANDROID_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }?.let { path ->
                 storeFile = file(path)
-                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                storePassword = System.getenv("SIGNING_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD")
             }
         }
     }

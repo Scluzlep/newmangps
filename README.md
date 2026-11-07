@@ -59,10 +59,10 @@
 ### 1. 配置签名密钥
 在 GitHub 仓库 **Settings -> Secrets and variables -> Actions** 中添加以下环境变量：
 
-- `SIGNING_STORE_BASE64`：签名证书文件（.jks/.keystore）的 Base64 编码字符串
-- `ANDROID_KEYSTORE_PASSWORD`：密钥库密码
-- `ANDROID_KEY_ALIAS`：密钥别名
-- `ANDROID_KEY_PASSWORD`：密钥私钥密码
+- `SIGNING_KEYSTORE_BASE64`：签名证书文件（.jks/.keystore）的 Base64 编码字符串
+- `SIGNING_PASSWORD`：密钥库密码
+- `SIGNING_KEY_ALIAS`：密钥别名
+- `SIGNING_KEY_PASSWORD`：密钥私钥密码
 
 ### 2. 发布发版
 推送 `v*` 格式的版本标签即可自动触发打包并创建 GitHub Release：
