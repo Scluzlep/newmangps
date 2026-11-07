@@ -67,8 +67,8 @@
 ### 2. 发布发版
 推送 `v*` 格式的版本标签即可自动触发打包并创建 GitHub Release：
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
 ---
