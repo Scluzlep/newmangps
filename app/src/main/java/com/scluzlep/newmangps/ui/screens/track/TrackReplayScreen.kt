@@ -1,6 +1,5 @@
 package com.scluzlep.newmangps.ui.screens.track
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -15,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scluzlep.newmangps.data.model.TrackPoint
+import com.scluzlep.newmangps.data.util.CoordinateTransform
+import com.scluzlep.newmangps.ui.screens.map.OsmMap
 import com.scluzlep.newmangps.ui.theme.*
 import kotlinx.coroutines.delay
 
@@ -26,13 +27,18 @@ fun TrackReplayScreen(
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     var isPlaying by remember { mutableStateOf(false) }
-    var speedMultiplier by remember { mutableIntStateOf(1) } // 1x, 2x, 4x
+    var speedMultiplier by remember { mutableIntStateOf(60) }
 
-    // Playback loop
-    LaunchedEffect(isPlaying, speedMultiplier) {
-        if (isPlaying && trackPoints.isNotEmpty()) {
+    LaunchedEffect(trackPoints) {
+        currentIndex = 0
+        isPlaying = false
+    }
+    LaunchedEffect(isPlaying, speedMultiplier, trackPoints) {
+        if (isPlaying && trackPoints.size > 1) {
             while (isPlaying && currentIndex < trackPoints.size - 1) {
-                delay(1000L / speedMultiplier)
+                val gap = (trackPoints[currentIndex + 1].timeSeconds -
+                    trackPoints[currentIndex].timeSeconds).coerceAtLeast(1)
+                delay((gap * 1000 / speedMultiplier).coerceIn(100, 5000))
                 currentIndex++
             }
             if (currentIndex >= trackPoints.size - 1) {
@@ -74,32 +80,16 @@ fun TrackReplayScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Simulated Map Route Canvas
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFFE8ECEF)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Timeline,
-                        contentDescription = null,
-                        tint = HyperGreen,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "正在回放第 ${currentIndex + 1} / ${trackPoints.size} 点",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = HyperTextPrimaryLight
-                    )
-                    Text(
-                        text = "时间: ${currentPoint?.formattedTime ?: "--"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = HyperTextSecondaryLight
-                    )
+            if (trackPoints.isNotEmpty()) {
+                OsmMap(
+                    points = trackPoints.map {
+                        CoordinateTransform.LatLng(it.rawLat, it.rawLon)
+                    },
+                    markerIndex = currentIndex
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("此时间段没有有效轨迹点")
                 }
             }
 
@@ -121,7 +111,9 @@ fun TrackReplayScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "速度: ${currentPoint?.speed ?: 0} km/h · 里程: ${currentPoint?.mileage ?: 0} km",
+                            text = currentPoint?.let {
+                                "速度: ${it.speed} km/h · 里程: ${String.format("%.2f", it.mileageKm)} km"
+                            } ?: "暂无轨迹数据",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -135,6 +127,7 @@ fun TrackReplayScreen(
                             currentIndex = it.toInt()
                             isPlaying = false
                         },
+                        enabled = trackPoints.size > 1,
                         valueRange = 0f..(if (trackPoints.isEmpty()) 1f else (trackPoints.size - 1).toFloat()),
                         colors = SliderDefaults.colors(
                             thumbColor = HyperBlue,
@@ -152,7 +145,7 @@ fun TrackReplayScreen(
                     ) {
                         // Speed selector
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(1, 2, 4).forEach { spd ->
+                            listOf(60, 120, 240).forEach { spd ->
                                 FilterChip(
                                     selected = speedMultiplier == spd,
                                     onClick = { speedMultiplier = spd },
@@ -162,15 +155,15 @@ fun TrackReplayScreen(
                         }
 
                         // Play / Pause Button
-                        FloatingActionButton(
+                        Button(
                             onClick = {
                                 if (currentIndex >= trackPoints.size - 1) {
                                     currentIndex = 0
                                 }
                                 isPlaying = !isPlaying
                             },
-                            containerColor = HyperBlue,
-                            contentColor = Color.White,
+                            enabled = trackPoints.size > 1,
+                            colors = ButtonDefaults.buttonColors(containerColor = HyperBlue),
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             Icon(

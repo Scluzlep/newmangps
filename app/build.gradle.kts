@@ -11,8 +11,8 @@ android {
         applicationId = "com.scluzlep.newmangps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2110721100
-        versionName = "1.0.0"
+        versionCode = 2110721101
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,7 +33,8 @@ android {
             if (!System.getenv("ANDROID_KEYSTORE_PATH").isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("ciRelease")
             }
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

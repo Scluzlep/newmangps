@@ -27,7 +27,6 @@ import com.scluzlep.newmangps.ui.theme.*
 
 @Composable
 fun LoginScreen(
-    onLoginSuccess: (String) -> Unit,
     onLoginClick: (String, String, Boolean) -> Unit,
     isLoading: Boolean = false,
     errorMessage: String? = null
@@ -58,7 +57,7 @@ fun LoginScreen(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "HyperOS 原生架构 · 纯净无广告 · 毫秒级遥测",
+            text = "设备位置与告警",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -155,19 +154,12 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        // Server Status Card
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .background(HyperGreen, shape = HyperPillShape)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "服务器: server.newsmy-nmgps.com · 在线正常",
+                text = "服务器: server.newsmy-nmgps.com",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

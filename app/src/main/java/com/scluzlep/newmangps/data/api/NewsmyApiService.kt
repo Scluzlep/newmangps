@@ -1,6 +1,7 @@
 package com.scluzlep.newmangps.data.api
 
 import com.google.gson.Gson
+import com.google.gson.JsonObject
 import com.scluzlep.newmangps.data.model.ApiResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,6 +38,27 @@ class NewsmyApiService(
             absPage = absPage
         )
 
+        post(signedParams).let { bodyString ->
+            gson.fromJson(bodyString, ApiResponse::class.java)
+                ?: throw IllegalStateException("Invalid RPC response")
+        }
+    }
+
+    suspend fun executeCommand(user: String, teid: String, command: String): Int =
+        withContext(Dispatchers.IO) {
+            val params = NewsmySigner.buildCommandParams(
+                serverUrl = serverUrl,
+                user = user,
+                command = command,
+                teid = teid
+            )
+            val response = gson.fromJson(post(params), JsonObject::class.java)
+                ?: throw IllegalStateException("Invalid command response")
+            response.get("nAction")?.asInt
+                ?: throw IllegalStateException("Command response has no status")
+        }
+
+    private fun post(signedParams: Map<String, String>): String {
         val formBuilder = FormBody.Builder()
         for ((key, value) in signedParams) {
             formBuilder.add(key, value)
@@ -49,8 +71,11 @@ class NewsmyApiService(
             .build()
 
         client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IllegalStateException("HTTP " + response.code)
+            }
             val bodyString = response.body?.string() ?: throw IllegalStateException("Empty response body")
-            gson.fromJson(bodyString, ApiResponse::class.java)
+            return bodyString
         }
     }
 }

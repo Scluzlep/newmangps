@@ -1,6 +1,5 @@
 package com.scluzlep.newmangps.ui.screens.map
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -10,13 +9,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scluzlep.newmangps.data.model.DevicePosition
+import com.scluzlep.newmangps.data.util.CoordinateTransform
 import com.scluzlep.newmangps.ui.theme.*
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,6 +26,14 @@ fun TrackingMapScreen(
     onBack: () -> Unit,
     onCommandClick: (String) -> Unit
 ) {
+    var nowSeconds by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            nowSeconds = System.currentTimeMillis() / 1000
+        }
+    }
+    val online = position?.let { nowSeconds - it.timeSeconds in 0..899 } == true
     Scaffold(
         topBar = {
             TopAppBar(
@@ -59,44 +67,17 @@ fun TrackingMapScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Simulated / Native Map Canvas placeholder
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFFE8ECEF)),
-                contentAlignment = Alignment.Center
+            if (position != null &&
+                position.rawLat in -85.0..85.0 && position.rawLon in -180.0..180.0 &&
+                position.rawLat != 0.0 && position.rawLon != 0.0
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(HyperPillShape)
-                            .background(HyperBlue.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DirectionsCar,
-                            contentDescription = null,
-                            tint = HyperBlue,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "高德地图 SDK 视图图层",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = HyperTextPrimaryLight
-                    )
-                    Text(
-                        text = if (position != null) {
-                            "GCJ-02: ${String.format("%.6f", position.gcjLatLng.latitude)}, ${String.format("%.6f", position.gcjLatLng.longitude)}"
-                        } else {
-                            "等待定位坐标..."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = HyperTextSecondaryLight
-                    )
+                OsmMap(
+                    points = listOf(CoordinateTransform.LatLng(position.rawLat, position.rawLon)),
+                    markerIndex = 0
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("暂无有效定位坐标")
                 }
             }
 
@@ -114,7 +95,7 @@ fun TrackingMapScreen(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "${position?.speed ?: 0}",
+                                text = position?.speed?.toString() ?: "--",
                                 fontSize = 32.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = HyperBlue
@@ -128,10 +109,16 @@ fun TrackingMapScreen(
                         }
 
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            HyperBatteryPill(percent = position?.batteryPercent ?: 100)
+                            position?.let { HyperBatteryPill(percent = it.batteryPercent) }
                             HyperStatusPill(
-                                text = if (position?.isSuperPowerSaving == true) "休眠" else "运动",
-                                color = if (position?.isSuperPowerSaving == true) HyperBlue else HyperGreen
+                                text = when {
+                                    position == null -> "状态未知"
+                                    !online -> "离线"
+                                    position.isSuperPowerSaving -> "休眠"
+                                    position.speed > 0 -> "运动"
+                                    else -> "静止"
+                                },
+                                color = if (online) HyperGreen else HyperRed
                             )
                         }
                     }
@@ -139,10 +126,17 @@ fun TrackingMapScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = address.ifEmpty { "暂无详细位置" },
+                        text = address.ifEmpty { "设备定位坐标" },
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold
                     )
+                    position?.let {
+                        Text(
+                            text = "WGS-84: ${String.format("%.6f", it.rawLat)}, ${String.format("%.6f", it.rawLon)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -151,12 +145,12 @@ fun TrackingMapScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "更新时间: ${position?.formattedTime ?: "刚刚"}",
+                            text = "更新时间: ${position?.formattedTime ?: "--"}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "GSM: ${position?.gsmSignal ?: 86}%",
+                            text = "GSM: ${position?.gsmSignal ?: "--"}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -170,6 +164,7 @@ fun TrackingMapScreen(
                     ) {
                         Button(
                             onClick = { onCommandClick("CDeviceRestart") },
+                            enabled = position != null,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = HyperBlue.copy(alpha = 0.15f), contentColor = HyperBlue)
@@ -178,12 +173,13 @@ fun TrackingMapScreen(
                         }
 
                         Button(
-                            onClick = { onCommandClick("CSetLocateMode") },
+                            onClick = { onCommandClick("EmergencyLocate") },
+                            enabled = position != null,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = HyperBlue.copy(alpha = 0.15f), contentColor = HyperBlue)
                         ) {
-                            Text("定位模式", fontWeight = FontWeight.Bold)
+                            Text("紧急定位", fontWeight = FontWeight.Bold)
                         }
                     }
                 }

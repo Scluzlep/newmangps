@@ -24,6 +24,15 @@ data class ApiResponse(
     }
 }
 
+data class DeviceSummary(val teid: String, val name: String) {
+    companion object {
+        fun fromRow(row: Map<String, String>): DeviceSummary? {
+            val teid = row["strTEID"]?.takeIf { it.isNotBlank() } ?: return null
+            return DeviceSummary(teid, row["strCarNum"].orEmpty().ifBlank { teid })
+        }
+    }
+}
+
 data class DevicePosition(
     val teid: String,
     val timeSeconds: Long,
@@ -45,10 +54,20 @@ data class DevicePosition(
         get() = ((teState and 0x00FF0000L) shr 16).toInt().coerceIn(0, 100)
 
     val isOnline: Boolean
-        get() = (System.currentTimeMillis() / 1000 - timeSeconds) < 900
+        get() = timeSeconds > 0 && (System.currentTimeMillis() / 1000 - timeSeconds) in 0..899
 
     val isSuperPowerSaving: Boolean
-        get() = (teState and 134217728L) != 0L // Bit 27: 休眠省电
+        get() = (teState and 0x80000000L) != 0L
+
+    val mileageKm: Double
+        get() = mileage / 1000.0
+
+    val parkDuration: String
+        get() {
+            val elapsed = System.currentTimeMillis() / 1000 - parkTimeSeconds
+            if (speed > 0 || parkTimeSeconds <= 0 || elapsed < 600) return "--"
+            return "${elapsed / 3600}小时${elapsed % 3600 / 60}分钟"
+        }
 
     // High-precision GCJ-02 coordinates for AutoNavi/AMap
     val gcjLatLng: CoordinateTransform.LatLng
@@ -67,7 +86,7 @@ data class DevicePosition(
                 timeSeconds = row["nTime"]?.toLongOrNull() ?: 0L,
                 rawLon = row["dbLon"]?.toDoubleOrNull() ?: 0.0,
                 rawLat = row["dbLat"]?.toDoubleOrNull() ?: 0.0,
-                speed = row["nSpeed"]?.toIntOrNull() ?: 0,
+                speed = (row["nSpeed"]?.toIntOrNull() ?: 0).coerceAtLeast(0),
                 direction = row["nDirection"]?.toIntOrNull() ?: 0,
                 gsmSignal = row["nGSMSignal"]?.toIntOrNull() ?: 0,
                 gpsSignal = row["nGPSSignal"]?.toIntOrNull() ?: 0,
@@ -139,6 +158,15 @@ data class TrackPoint(
     val formattedTime: String
         get() = formatTimestamp(timeSeconds)
 
+    val mileageKm: Double
+        get() = mileage / 1000.0
+
+    val isUsable: Boolean
+        get() = timeSeconds > 0 && rawLat in -85.0..85.0 && rawLon in -180.0..180.0 &&
+            rawLat != 0.0 && rawLon != 0.0 &&
+            ((teState and 128L) == 0L || (teState and 4096L) != 0L) &&
+            ((teState and 8192L) == 0L || (teState and 4096L) != 0L)
+
     companion object {
         fun fromRow(row: Map<String, String>): TrackPoint {
             return TrackPoint(
@@ -147,7 +175,7 @@ data class TrackPoint(
                 timeSeconds = row["nTime"]?.toLongOrNull() ?: 0L,
                 rawLon = row["dbLon"]?.toDoubleOrNull() ?: 0.0,
                 rawLat = row["dbLat"]?.toDoubleOrNull() ?: 0.0,
-                speed = row["nSpeed"]?.toIntOrNull() ?: 0,
+                speed = (row["nSpeed"]?.toIntOrNull() ?: 0).coerceAtLeast(0),
                 direction = row["nDirection"]?.toIntOrNull() ?: 0,
                 mileage = row["nMileage"]?.toIntOrNull() ?: 0,
                 gsmSignal = row["nGSMSignal"]?.toIntOrNull() ?: 0,
@@ -183,7 +211,28 @@ data class AlarmItem(
     val timeSeconds: Long,
     val alarmType: String,
     val content: String
-)
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>): AlarmItem? {
+            val teid = row["strTEID"]?.takeIf { it.isNotBlank() } ?: return null
+            val time = row["nTime"]?.toLongOrNull() ?: return null
+            val state = row["nAlarmState"]?.toLongOrNull() ?: 0L
+            val labels = listOf(
+                16L to "离开围栏", 32L to "进入围栏", 64L to "超速",
+                128L to "紧急报警", 32768L to "低电量"
+            ).filter { (bit, _) -> state and bit != 0L }.map { it.second }
+            val description = labels.joinToString("、").ifBlank { "设备报警" }
+            val other = row["strOther"].orEmpty().trim()
+            return AlarmItem(
+                id = "$teid:$time:$state:$other",
+                teid = teid,
+                timeSeconds = time,
+                alarmType = state.toString(),
+                content = if (other.isBlank()) description else "$description：$other"
+            )
+        }
+    }
+}
 
 private fun formatTimestamp(seconds: Long): String {
     if (seconds <= 0) return "--"

@@ -2,6 +2,7 @@ package com.scluzlep.newmangps.data.api
 
 import java.security.MessageDigest
 import java.util.Base64
+import java.net.URLEncoder
 import kotlin.random.Random
 
 /**
@@ -44,6 +45,34 @@ object NewsmySigner {
         pageSize: Int = 0,
         absPage: Int = 0
     ): Map<String, String> {
+        val data = params.joinToString(",") {
+            val escaped = it.toString().replace("'", "''")
+            "N'$escaped'"
+        }
+        return buildSignedPayload(serverUrl, user, cmd, data, field, pageSize, absPage)
+    }
+
+    fun buildCommandParams(
+        serverUrl: String = DEFAULT_SERVER,
+        user: String,
+        command: String,
+        teid: String,
+        parameter: String = ""
+    ): Map<String, String> {
+        val data = URLEncoder.encode("$user&$teid&$parameter", "UTF-8")
+            .replace("+", "%20")
+        return buildSignedPayload(serverUrl, user, command, data, "", 0, 0)
+    }
+
+    private fun buildSignedPayload(
+        serverUrl: String,
+        user: String,
+        cmd: String,
+        dataStr: String,
+        field: String,
+        pageSize: Int,
+        absPage: Int
+    ): Map<String, String> {
         // 1. Calculate strAppID: lowercase host with trailing '/' padded to multiple of 3
         var host = serverUrl.lowercase()
             .replace("http://", "")
@@ -53,13 +82,7 @@ object NewsmySigner {
         }
         val strAppID = base64Encode(host)
 
-        // 2. Format SQL Server Stored Procedure Parameters: N'p1',N'p2'
-        val dataStr = params.joinToString(",") {
-            val escaped = it.toString().replace("'", "''")
-            "N'$escaped'"
-        }
-
-        // 3. Assemble Token payload with delimiters
+        // Assemble Token payload with delimiters
         val tokenBuilder = StringBuilder()
         tokenBuilder.append(cmd).append(SERVER_ROW)
             .append(dataStr).append(SERVER_ROW)

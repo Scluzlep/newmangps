@@ -1,9 +1,12 @@
 package com.scluzlep.newmangps.data.push
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 
 object AlarmNotificationManager {
@@ -26,7 +29,13 @@ object AlarmNotificationManager {
         }
     }
 
-    fun showAlarmNotification(context: Context, id: Int, title: String, content: String) {
+    fun canNotify(context: Context): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    fun showAlarmNotification(context: Context, id: Int, title: String, content: String): Boolean {
+        if (!canNotify(context)) return false
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALARM)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(title)
@@ -37,6 +46,7 @@ object AlarmNotificationManager {
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(id, builder.build())
+        return true
     }
 }
 

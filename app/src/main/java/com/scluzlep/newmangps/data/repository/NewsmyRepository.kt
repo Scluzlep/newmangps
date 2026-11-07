@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+data class AlarmPage(val alarms: List<AlarmItem>, val hasMore: Boolean)
+
 class NewsmyRepository(
     private val apiService: NewsmyApiService = NewsmyApiService()
 ) {
@@ -26,8 +28,7 @@ class NewsmyRepository(
                 cmd = "Proc_LoginIMEI",
                 params = listOf(imei, pass)
             )
-            val rows = res.toRows()
-            val success = res.isResultOk == 1 && rows.firstOrNull()?.get("Result") == "1"
+            val success = isLoginAccepted(res)
             if (success) {
                 _currentUser.value = imei
                 _currentPassword.value = pass
@@ -46,21 +47,38 @@ class NewsmyRepository(
      */
     suspend fun loginUser(user: String, pass: String): Result<Boolean> {
         return try {
-            val res = apiService.executeRpc(
+            val primary = apiService.executeRpc(
                 user = user,
                 cmd = "Proc_Login",
                 params = listOf(user, pass)
             )
-            val rows = res.toRows()
-            val success = res.isResultOk == 1 && rows.firstOrNull()?.get("Result") == "1"
+            val primaryAccepted = isLoginAccepted(primary)
+            val res = if (primaryAccepted) primary else apiService.executeRpc(
+                user = user,
+                cmd = "Proc_LoginAnother",
+                params = listOf(user, pass)
+            )
+            val success = isLoginAccepted(res)
             if (success) {
-                _currentUser.value = user
+                _currentUser.value = if (primaryAccepted) user
+                    else res.records?.firstOrNull()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: user
                 _currentPassword.value = pass
-                _loginType.value = 0
+                _loginType.value = if (primaryAccepted) 0 else 1
                 Result.success(true)
             } else {
                 Result.failure(Exception("用户名或密码错误"))
             }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getDevices(): Result<List<DeviceSummary>> {
+        val user = _currentUser.value ?: return Result.failure(IllegalStateException("尚未登录"))
+        return try {
+            val res = apiService.executeRpc(user, "Proc_GetCarAppMini", listOf(user))
+            requireOk(res)
+            Result.success(res.toRows().mapNotNull(DeviceSummary::fromRow).distinctBy { it.teid })
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -81,7 +99,7 @@ class NewsmyRepository(
                 cmd = "Proc_UserSwitch",
                 params = listOf(1, pushCid, user, pwdMd5, type, NewsmySigner.DEFAULT_SERVER)
             )
-            Result.success(res.isResultOk == 1)
+            Result.success(res.isResultOk != 0)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -93,10 +111,11 @@ class NewsmyRepository(
     suspend fun getLastPosition(imei: String): Result<DevicePosition?> {
         return try {
             val res = apiService.executeRpc(
-                user = imei,
+                user = currentUserFor(imei),
                 cmd = "Proc_GetLastPosition",
                 params = listOf(imei)
             )
+            requireOk(res)
             val row = res.toRows().firstOrNull()
             Result.success(row?.let { DevicePosition.fromRow(it) })
         } catch (e: Exception) {
@@ -110,10 +129,11 @@ class NewsmyRepository(
     suspend fun getDeviceDetail(imei: String): Result<DeviceDetail?> {
         return try {
             val res = apiService.executeRpc(
-                user = imei,
+                user = currentUserFor(imei),
                 cmd = "Proc_GetCarInfo",
                 params = listOf(imei)
             )
+            requireOk(res)
             val row = res.toRows().firstOrNull()
             Result.success(row?.let { DeviceDetail.fromRow(it) })
         } catch (e: Exception) {
@@ -128,15 +148,19 @@ class NewsmyRepository(
         imei: String,
         startTimeSec: Long,
         endTimeSec: Long,
-        limit: Int = 1000
+        limit: Int = 10000
     ): Result<List<TrackPoint>> {
         return try {
             val res = apiService.executeRpc(
-                user = imei,
+                user = currentUserFor(imei),
                 cmd = "Proc_GetTrack",
                 params = listOf(imei, startTimeSec, endTimeSec, limit)
             )
-            val points = res.toRows().map { TrackPoint.fromRow(it) }
+            requireOk(res)
+            val points = res.toRows().map(TrackPoint::fromRow)
+                .filter(TrackPoint::isUsable)
+                .sortedBy(TrackPoint::timeSeconds)
+                .distinctBy { Triple(it.timeSeconds, it.rawLat, it.rawLon) }
             Result.success(points)
         } catch (e: Exception) {
             Result.failure(e)
@@ -149,11 +173,13 @@ class NewsmyRepository(
     suspend fun getGeofences(imei: String): Result<List<GeofenceItem>> {
         return try {
             val res = apiService.executeRpc(
-                user = imei,
+                user = currentUserFor(imei),
                 cmd = "Proc_GetUserCarFence",
-                params = listOf(imei, "")
+                params = listOf(currentUserFor(imei), "")
             )
-            val fences = res.toRows().map { GeofenceItem.fromRow(it) }
+            requireOk(res)
+            val fences = res.toRows().map(GeofenceItem::fromRow)
+                .filter { it.teid.isBlank() || it.teid == imei }
             Result.success(fences)
         } catch (e: Exception) {
             Result.failure(e)
@@ -163,26 +189,53 @@ class NewsmyRepository(
     /**
      * Poll Alarm Queue for fallback notifications
      */
-    suspend fun pollAlarmQueue(imei: String): Result<List<AlarmItem>> {
+    suspend fun pollAlarmQueue(
+        user: String,
+        startTimeSec: Long,
+        endTimeSec: Long,
+        offset: Int = 0
+    ): Result<AlarmPage> {
         return try {
             val res = apiService.executeRpc(
-                user = imei,
+                user = user,
                 cmd = "Proc_GetTrackAlarmQueue",
-                params = listOf(imei)
+                params = listOf(user, startTimeSec, endTimeSec, offset, 200, 0),
+                field = "strCarNum,strTEID,nTime,nAlarmState,strOther"
             )
-            val alarms = res.toRows().map { row ->
-                AlarmItem(
-                    id = row["nID"] ?: "",
-                    teid = row["strTEID"] ?: imei,
-                    timeSeconds = row["nTime"]?.toLongOrNull() ?: 0L,
-                    alarmType = row["nAlarmType"] ?: "0",
-                    content = row["strContent"] ?: "设备报警"
-                )
-            }
-            Result.success(alarms)
+            requireOk(res)
+            val rows = res.toRows()
+            Result.success(AlarmPage(rows.mapNotNull(AlarmItem::fromRow), rows.size == 200))
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun sendDeviceCommand(teid: String, action: String): Result<Unit> {
+        val user = _currentUser.value ?: return Result.failure(IllegalStateException("尚未登录"))
+        val code = when (action) {
+            "CDeviceRestart" -> "0x0208"
+            "EmergencyLocate" -> "0x0281"
+            else -> return Result.failure(IllegalArgumentException("不支持的设备命令"))
+        }
+        return try {
+            when (apiService.executeCommand(user, teid, code)) {
+                1 -> Result.success(Unit)
+                2 -> Result.failure(IllegalStateException("设备不支持该指令"))
+                else -> Result.failure(IllegalStateException("指令下发失败"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun currentUserFor(teid: String): String = _currentUser.value ?: teid
+
+    private fun isLoginAccepted(response: ApiResponse): Boolean =
+        response.isResultOk != 0 &&
+            response.toRows().firstOrNull()?.get("Result")?.let { it == "1" } != false
+
+    private fun requireOk(response: ApiResponse) {
+        if (response.isResultOk == 0) throw IllegalStateException("服务器拒绝了请求")
     }
 }
 
