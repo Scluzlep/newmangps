@@ -72,7 +72,7 @@ object NewsmySigner {
         tokenBuilder.append(SERVER_TABLE)
 
         // 4. Generate random string and padding
-        val randomDigits = Random.nextLong(10_000_000_000_000L, 99_99_999_999_999L).toString()
+        val randomDigits = Random.nextLong(10_000_000_000_000L, 100_000_000_000_000L).toString()
         val rndFull = "MGTS_$randomDigits"
         val padChar = if (rndFull.length > 7) rndFull[7] else '0'
 
