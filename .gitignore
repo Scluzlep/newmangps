@@ -1,0 +1,27 @@
+# Analysis and reverse engineering dumps
+/analyze/
+*.apk
+*.dex
+
+# Gradle
+.gradle/
+build/
+app/build/
+
+# IDE / Android Studio
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Misc
+*.log
+*.tmp
+
