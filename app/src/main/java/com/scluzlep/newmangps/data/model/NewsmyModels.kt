@@ -27,7 +27,8 @@ data class ApiResponse(
 data class DeviceSummary(
     val teid: String,
     val name: String,
-    val mileageInitKm: Double = 0.0
+    val mileageInitKm: Double = 0.0,
+    val iconId: String = ""
 ) {
     companion object {
         fun fromRow(row: Map<String, String>): DeviceSummary? {
@@ -35,7 +36,8 @@ data class DeviceSummary(
             return DeviceSummary(
                 teid = teid,
                 name = row["strCarNum"].orEmpty().ifBlank { teid },
-                mileageInitKm = row["nMileageInit"]?.toDoubleOrNull() ?: 0.0
+                mileageInitKm = row["nMileageInit"]?.toDoubleOrNull() ?: 0.0,
+                iconId = row["strIconID"].orEmpty()
             )
         }
     }
@@ -144,7 +146,8 @@ data class DeviceDetail(
     val limitTimeSeconds: Long,
     val activeTimeSeconds: Long,
     val addTimeSeconds: Long,
-    val soundRemainSec: Int
+    val soundRemainSec: Int,
+    val rawFields: Map<String, String> = emptyMap()
 ) {
     val formattedLimitDate: String
         get() = formatTimestamp(limitTimeSeconds)
@@ -164,7 +167,8 @@ data class DeviceDetail(
                 limitTimeSeconds = row["nLimitTime"]?.toLongOrNull() ?: 0L,
                 activeTimeSeconds = row["nActiveTime"]?.toLongOrNull() ?: 0L,
                 addTimeSeconds = row["nAddTime"]?.toLongOrNull() ?: 0L,
-                soundRemainSec = row["nSoundRemainSec"]?.toIntOrNull() ?: 0
+                soundRemainSec = row["nSoundRemainSec"]?.toIntOrNull() ?: 0,
+                rawFields = row
             )
         }
     }
@@ -223,7 +227,12 @@ data class GeofenceItem(
     val user: String,
     val teid: String,
     val name: String,
-    val state: Int // 1: In, 2: Out, 3: In & Out
+    val state: Int, // 1: In, 2: Out, 3: In & Out
+    val type: Int = 1,
+    val distanceMeters: Int = 200,
+    val geometry: String = "",
+    val alarmType: Int = 3,
+    val info: String = ""
 ) {
     companion object {
         fun fromRow(row: Map<String, String>): GeofenceItem {
@@ -232,7 +241,12 @@ data class GeofenceItem(
                 user = row["strUser"] ?: "",
                 teid = row["strTEID"] ?: "",
                 name = row["strName"] ?: "",
-                state = row["nState"]?.toIntOrNull() ?: 3
+                state = row["nState"]?.toIntOrNull() ?: 3,
+                type = row["nType"]?.toIntOrNull() ?: 1,
+                distanceMeters = row["nDistance"]?.toIntOrNull() ?: 200,
+                geometry = row["strArrLonLat"].orEmpty(),
+                alarmType = row["nAlarmType"]?.toIntOrNull() ?: 3,
+                info = row["strInfo"].orEmpty()
             )
         }
     }
@@ -266,6 +280,234 @@ data class AlarmItem(
         }
     }
 }
+
+data class DevicePhoto(
+    val teid: String,
+    val timeSeconds: Long,
+    val type: Int,
+    val cameraId: Int,
+    val relativePath: String,
+    val url: String
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>, urlForPath: (String) -> String): DevicePhoto? {
+            val path = row["strRelativePath"]?.takeIf { it.isNotBlank() } ?: return null
+            return DevicePhoto(
+                row["strTEID"].orEmpty(), row["nTime"]?.toLongOrNull() ?: 0,
+                row["nPhotoType"]?.toIntOrNull() ?: 0,
+                row["nCameraID"]?.toIntOrNull() ?: 0, path, urlForPath(path)
+            )
+        }
+    }
+}
+
+data class DeviceRecording(
+    val teid: String,
+    val timeSeconds: Long,
+    val type: Int,
+    val durationSeconds: Int,
+    val isNew: Boolean,
+    val relativePath: String,
+    val url: String
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>, urlForPath: (String) -> String): DeviceRecording? {
+            val path = row["strRelativePath"]?.takeIf { it.isNotBlank() } ?: return null
+            val seconds = row["nSecond"]?.toIntOrNull() ?: 0
+            return DeviceRecording(
+                row["strTEID"].orEmpty(), row["nTime"]?.toLongOrNull() ?: 0,
+                row["nType"]?.toIntOrNull() ?: 0,
+                if (seconds % 10 == 9) seconds + 1 else seconds,
+                (row["isNew"]?.toIntOrNull() ?: 0) > 0, path, urlForPath(path)
+            )
+        }
+    }
+}
+
+data class UserStats(
+    val carTotal: Int,
+    val subUserTotal: Int,
+    val timeoutTotal: Int,
+    val alarmTotal: Int,
+    val onlineTotal: Int,
+    val offlineTotal: Int,
+    val dayOnlineTotal: Int,
+    val weekOnlineTotal: Int,
+    val monthOnlineTotal: Int,
+    val quarterOnlineTotal: Int,
+    val yearOnlineTotal: Int
+) {
+    val unactivatedTotal: Int get() = (carTotal - onlineTotal - offlineTotal).coerceAtLeast(0)
+
+    companion object {
+        fun fromRow(row: Map<String, String>) = UserStats(
+            row["nCarTotal"].toNumber(), row["nSubUserTotal"].toNumber(),
+            row["nTimeoutTotal"].toNumber(), row["nAlarmTotal"].toNumber(),
+            row["nOnlineTotal"].toNumber(), row["nOfflineTotal"].toNumber(),
+            row["nDayOnlineTotal"].toNumber(), row["nWeekOnlineTotal"].toNumber(),
+            row["nMonthOnlineTotal"].toNumber(), row["nQuarterOnlineTotal"].toNumber(),
+            row["nYearOnlineTotal"].toNumber()
+        )
+    }
+}
+
+data class SubUserPrivilege(
+    val username: String,
+    val limitSubUsers: Int,
+    val limitCars: Int,
+    val limitControlDevices: Int,
+    val flags: Int
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>) = SubUserPrivilege(
+            row["strUser"].orEmpty(), row["nLimitSubUser"].toNumber(),
+            row["nLimitCar"].toNumber(), row["nLimitCtrlTE"].toNumber(),
+            row["nLimitClientSoft"].toNumber()
+        )
+    }
+}
+
+data class UserRelation(val parent: String, val child: String) {
+    companion object {
+        fun fromRow(row: Map<String, String>): UserRelation? {
+            val parent = row["strUser"]?.takeIf { it.isNotBlank() } ?: return null
+            val child = row["strSubUser"]?.takeIf { it.isNotBlank() } ?: return null
+            return if (parent == child) null else UserRelation(parent, child)
+        }
+    }
+}
+
+data class PayPlan(val id: Int, val name: String, val state: Int) {
+    companion object {
+        fun fromRow(row: Map<String, String>) = PayPlan(
+            row["nPayPlan"].toNumber(), row["strName"].orEmpty(), row["nPayState"].toNumber()
+        )
+    }
+}
+
+data class DeviceModelCapability(
+    val value: String,
+    val name: String,
+    val commands: Set<String>,
+    val features: Set<String>,
+    val config: String,
+    val payPlan: Int
+) {
+    fun hides(section: String, option: String): Boolean = config.split(';').any { entry ->
+        entry.substringBefore('=') == section && option in entry.substringAfter('=', "").split(',')
+    }
+
+    fun hasOptions(section: String): Boolean = config.split(';').any {
+        it.substringBefore('=') == section
+    }
+
+    companion object {
+        fun fromRow(row: Map<String, String>) = DeviceModelCapability(
+            row["nValue"].orEmpty(), row["strName"].orEmpty(),
+            row["strCmdInfo"].orEmpty().split(',').filter(String::isNotBlank).toSet(),
+            row["strRealInfo"].orEmpty().split(',').filter(String::isNotBlank).toSet(),
+            row["strConfigInfo"].orEmpty(), row["nPayPlan"].toNumber()
+        )
+    }
+}
+
+data class WifiMark(
+    val teid: String, val timeSeconds: Long, val longitude: Double, val latitude: Double,
+    val wifi: String, val near: String, val name: String, val address: String
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>) = WifiMark(
+            row["strTEID"].orEmpty(), row["nTime"]?.toLongOrNull() ?: 0,
+            row["dbLon"]?.toDoubleOrNull() ?: 0.0, row["dbLat"]?.toDoubleOrNull() ?: 0.0,
+            row["strWifi"].orEmpty(), row["strNear"].orEmpty(),
+            row["strName"].orEmpty(), row["strAddress"].orEmpty()
+        )
+    }
+}
+
+data class PayPrice(
+    val planId: Int, val buyType: Int, val buyValue: Int,
+    val price: Double, val currency: String
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>) = PayPrice(
+            row["nPayPlan"].toNumber(), row["nBuyType"].toNumber(),
+            row["nBuyValue"].toNumber(), row["nPrice"]?.toDoubleOrNull() ?: 0.0,
+            row["strCurrency"].orEmpty()
+        )
+    }
+}
+
+data class PayOrder(
+    val timeSeconds: Long, val buyType: Int, val buyValue: Int,
+    val amount: Double, val currency: String, val orderId: String,
+    val title: String, val content: String
+) {
+    companion object {
+        fun fromRow(row: Map<String, String>) = PayOrder(
+            row["nTime"]?.toLongOrNull() ?: 0,
+            row["nBuyType"].toNumber(), row["nBuyValue"].toNumber(),
+            row["nAmount"]?.toDoubleOrNull() ?: 0.0,
+            row["strCurrency"].orEmpty(), row["strOrderID"].orEmpty(),
+            row["strTitle"].orEmpty(), row["strContent"].orEmpty()
+        )
+    }
+}
+
+data class MonthlyInstallCount(val monthSeconds: Long, val count: Int) {
+    companion object {
+        fun fromRow(row: Map<String, String>) = MonthlyInstallCount(
+            row["nCreateStartTime"]?.toLongOrNull() ?: 0,
+            row["nCount"].toNumber()
+        )
+    }
+}
+
+data class ReportSample(
+    val timeSeconds: Long,
+    val longitude: Double,
+    val latitude: Double,
+    val speed: Double,
+    val mileageKm: Double,
+    val fuelRaw: Double?,
+    val temperatureC: Double?,
+    val other: String,
+    val teState: Long = 0,
+    val teid: String = "",
+    val carNum: String = ""
+) {
+    val isValidPosition: Boolean get() = latitude in -90.0..90.0 && longitude in -180.0..180.0 &&
+        (latitude != 0.0 || longitude != 0.0) && (teState and 4096L != 0L || teState and 128L == 0L)
+    val isParked: Boolean get() = speed < 2
+
+    companion object {
+        fun fromRow(row: Map<String, String>) = ReportSample(
+            row["nTime"]?.toLongOrNull() ?: 0,
+            parseCoordinate(row, "dbLon", "nLon"),
+            parseCoordinate(row, "dbLat", "nLat"),
+            row["nSpeed"]?.toDoubleOrNull() ?: 0.0,
+            (row["nRealMileage"] ?: row["nMileage"])?.toDoubleOrNull()?.div(1000) ?: 0.0,
+            row["nFuel"]?.toDoubleOrNull(),
+            row["nTemp"]?.toDoubleOrNull()?.div(10),
+            row["strOther"].orEmpty(),
+            row["nTEState"]?.toLongOrNull() ?: 0,
+            row["strTEID"].orEmpty(),
+            row["strCarNum"].orEmpty()
+        )
+    }
+}
+
+data class HealthSample(val timeSeconds: Long, val name: String, val value: Double) {
+    companion object {
+        fun fromRow(row: Map<String, String>): HealthSample? {
+            val name = row["strName"]?.takeIf { it.isNotBlank() } ?: return null
+            val value = row["strValue"]?.toDoubleOrNull() ?: return null
+            return HealthSample(row["nTime"]?.toLongOrNull() ?: 0, name, value)
+        }
+    }
+}
+
+private fun String?.toNumber(): Int = this?.toIntOrNull() ?: 0
 
 private fun formatTimestamp(seconds: Long): String {
     if (seconds <= 0) return "--"

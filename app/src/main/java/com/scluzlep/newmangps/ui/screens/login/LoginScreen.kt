@@ -24,17 +24,23 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scluzlep.newmangps.ui.theme.*
+import com.scluzlep.newmangps.ui.LocalAppLanguage
 
 @Composable
 fun LoginScreen(
     onLoginClick: (String, String, Boolean) -> Unit,
+    serverName: String,
+    servers: List<Pair<String, String>>,
+    onServerSelected: (String) -> Unit,
     isLoading: Boolean = false,
     errorMessage: String? = null
 ) {
+    val language = LocalAppLanguage.current
     var selectedTab by remember { mutableIntStateOf(0) } // 0: IMEI, 1: Username
     var accountInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var serverMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -50,14 +56,14 @@ fun LoginScreen(
 
         // App Logo / Title (Xiaomi HyperOS Style)
         Text(
-            text = "纽曼GPS",
+            text = language.text("AppName", "纽曼GPS"),
             style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp),
             color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.ExtraBold
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "设备位置与告警",
+            text = language.text("AppTagline", "设备位置与告警"),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -66,7 +72,8 @@ fun LoginScreen(
 
         // HyperSegmentedControl Tab
         HyperSegmentedControl(
-            items = listOf("IMEI 设备直连", "平台账号登录"),
+            items = listOf(language.text("ImeiLogin", "IMEI 设备直连"),
+                language.text("AccountLogin", "平台账号登录")),
             selectedIndex = selectedTab,
             onItemSelected = { selectedTab = it },
             modifier = Modifier.fillMaxWidth()
@@ -77,7 +84,8 @@ fun LoginScreen(
         // Login Input Card
         HyperCard {
             Text(
-                text = if (selectedTab == 0) "输入定位器 IMEI 号" else "输入平台账号",
+                text = if (selectedTab == 0) language.text("EnterImei", "输入定位器 IMEI 号")
+                    else language.text("EnterAccount", "输入平台账号"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -88,7 +96,8 @@ fun LoginScreen(
             OutlinedTextField(
                 value = accountInput,
                 onValueChange = { accountInput = it },
-                label = { Text(if (selectedTab == 0) "15位设备 IMEI 号" else "账号用户名") },
+                label = { Text(if (selectedTab == 0) language.text("Imei15Digits", "15位设备 IMEI 号")
+                    else language.text("AccountUsername", "账号用户名")) },
                 leadingIcon = {
                     Icon(
                         imageVector = if (selectedTab == 0) Icons.Default.Numbers else Icons.Default.Person,
@@ -109,7 +118,7 @@ fun LoginScreen(
             OutlinedTextField(
                 value = passwordInput,
                 onValueChange = { passwordInput = it },
-                label = { Text("访问密码") },
+                label = { Text(language.text("Password", "访问密码")) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Lock,
@@ -144,7 +153,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             HyperButton(
-                text = "登 录 设 备",
+                text = language.text("Login", "登录"),
                 onClick = {
                     onLoginClick(accountInput, passwordInput, selectedTab == 0)
                 },
@@ -154,15 +163,16 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = "服务器: server.newsmy-nmgps.com",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Box {
+            TextButton(onClick = { serverMenu = true }) { Text("${language.text("Server", "服务器")}: $serverName") }
+            DropdownMenu(expanded = serverMenu, onDismissRequest = { serverMenu = false }) {
+                servers.forEach { (url, name) ->
+                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                        serverMenu = false
+                        onServerSelected(url)
+                    })
+                }
+            }
         }
     }
 }

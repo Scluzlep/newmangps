@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.scluzlep.newmangps.data.model.AlarmItem
+import com.scluzlep.newmangps.ui.LocalAppLanguage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,18 +39,19 @@ fun AlarmHistoryScreen(
     onRefresh: () -> Unit,
     onPeriodSelected: (Int) -> Unit
 ) {
+    val language = LocalAppLanguage.current
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("历史告警") },
+                title = { Text(language.text("AlarmHistory", "历史告警")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = language.text("Back", "返回"))
                     }
                 },
                 actions = {
                     IconButton(onClick = onRefresh) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                        Icon(Icons.Default.Refresh, contentDescription = language.text("Refresh", "刷新"))
                     }
                 }
             )
@@ -61,14 +63,14 @@ fun AlarmHistoryScreen(
                     FilterChip(
                         selected = periodHours == hours,
                         onClick = { onPeriodSelected(hours) },
-                        label = { Text("近 ${hours} 小时") }
+                        label = { Text("${language.text("Last", "近")} $hours ${language.text("Hour", "小时")}") }
                     )
                 }
             }
             if (loading) CircularProgressIndicator()
             errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (!loading && alarms.isEmpty() && errorMessage == null) {
-                Text("所选时间内没有告警", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(language.text("NoAlarmsInPeriod", "所选时间内没有告警"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             LazyColumn {
                 items(alarms, key = AlarmItem::id) { alarm ->

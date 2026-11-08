@@ -14,19 +14,43 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scluzlep.newmangps.data.model.TrackPoint
+import com.scluzlep.newmangps.data.repository.NewsmyRepository
 import com.scluzlep.newmangps.ui.screens.map.AmapJsMap
+import com.scluzlep.newmangps.ui.LocalAppLanguage
 import com.scluzlep.newmangps.ui.theme.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackReplayScreen(
-    trackPoints: List<TrackPoint>,
+    teid: String,
+    repository: NewsmyRepository,
     onBack: () -> Unit
 ) {
+    val language = LocalAppLanguage.current
+    val scope = rememberCoroutineScope()
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var trackPoints by remember { mutableStateOf<List<TrackPoint>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     var currentIndex by remember { mutableIntStateOf(0) }
     var isPlaying by remember { mutableStateOf(false) }
     var speedMultiplier by remember { mutableIntStateOf(60) }
+
+    LaunchedEffect(teid, selectedDate) {
+        loading = true
+        error = null
+        val zone = ZoneId.systemDefault()
+        val start = selectedDate.atStartOfDay(zone).toEpochSecond()
+        val end = selectedDate.plusDays(1).atStartOfDay(zone).toEpochSecond() - 1
+        val result = repository.getTrackHistory(teid, start, end)
+        trackPoints = result.getOrNull().orEmpty()
+        error = result.exceptionOrNull()?.message
+        loading = false
+    }
 
     LaunchedEffect(trackPoints) {
         currentIndex = 0
@@ -54,12 +78,12 @@ fun TrackReplayScreen(
                 title = {
                     Column {
                         Text(
-                            text = "历史轨迹回放",
+                            text = "${language.text("HistoryTrack", "历史轨迹")} · ${language.text("ReplayTrack", "回放")}",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "共 ${trackPoints.size} 个历史轨迹点",
+                            text = "${language.text("TrackPointCount", "历史轨迹点")}：${trackPoints.size}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -67,7 +91,7 @@ fun TrackReplayScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = language.text("Back", "返回"))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -82,11 +106,15 @@ fun TrackReplayScreen(
             if (trackPoints.isNotEmpty()) {
                 AmapJsMap(
                     points = trackPoints.map { it.gcjLatLng },
-                    markerIndex = currentIndex
+                    markerIndex = currentIndex,
+                    markerDirection = currentPoint?.direction ?: 0,
+                    followMarker = true,
+                    routeSpeeds = trackPoints.map { it.speed },
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("此时间段没有有效轨迹点")
+                    Text(language.text("NoValidTrackPoints", "此时间段没有有效轨迹点"))
                 }
             }
 
@@ -97,6 +125,14 @@ fun TrackReplayScreen(
                     .padding(16.dp)
             ) {
                 HyperCard {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = { selectedDate = selectedDate.minusDays(1) }) { Text(language.text("PreviousDay", "前一天")) }
+                        Text(selectedDate.toString(), modifier = Modifier.padding(top = 12.dp))
+                        TextButton(onClick = { selectedDate = selectedDate.plusDays(1) },
+                            enabled = selectedDate.isBefore(LocalDate.now())) { Text(language.text("NextDay", "后一天")) }
+                    }
+                    if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -109,8 +145,8 @@ fun TrackReplayScreen(
                         )
                         Text(
                             text = currentPoint?.let {
-                                "速度: ${it.speed} km/h · 里程: ${String.format("%.2f", it.mileageKm)} km"
-                            } ?: "暂无轨迹数据",
+                                "${language.text("Speed", "速度")}: ${it.speed} ${language.text("KMH", "km/h")} · ${language.text("Mileage", "里程")}: ${String.format("%.2f", it.mileageKm)} km"
+                            } ?: language.text("NoTrackData", "暂无轨迹数据"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -165,7 +201,7 @@ fun TrackReplayScreen(
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "暂停" else "播放"
+                                contentDescription = if (isPlaying) language.text("Pause", "暂停") else language.text("Play", "播放")
                             )
                         }
                     }

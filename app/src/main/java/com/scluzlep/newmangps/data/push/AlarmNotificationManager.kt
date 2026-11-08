@@ -3,6 +3,9 @@ package com.scluzlep.newmangps.data.push
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import com.scluzlep.newmangps.MainActivity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -34,12 +37,20 @@ object AlarmNotificationManager {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
-    fun showAlarmNotification(context: Context, id: Int, title: String, content: String): Boolean {
+    fun showAlarmNotification(context: Context, id: Int, title: String, content: String,
+        teid: String = "", server: String = "", user: String = ""): Boolean {
         if (!canNotify(context)) return false
+        val intent = Intent(context, MainActivity::class.java)
+            .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("alarm_teid", teid).putExtra("alarm_server", server).putExtra("alarm_user", user)
+        val pending = PendingIntent.getActivity(context, id, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_ALARM)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(title)
             .setContentText(content)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setContentIntent(pending)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
