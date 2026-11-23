@@ -99,7 +99,9 @@ class NewsmyApiService(
             )
             val response = gson.fromJson(post(params), JsonObject::class.java)
                 ?: throw IllegalStateException("Invalid command response")
-            response.get("nAction")?.asInt
+            response.get("nAction")
+                ?.takeIf { it.isJsonPrimitive }
+                ?.let { runCatching { it.asInt }.getOrNull() }
                 ?: throw IllegalStateException("Command response has no status")
         }
 

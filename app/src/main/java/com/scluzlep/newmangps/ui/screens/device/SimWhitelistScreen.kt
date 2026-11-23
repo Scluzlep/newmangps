@@ -19,13 +19,11 @@ import com.scluzlep.newmangps.ui.LocalAppLanguage
 @Composable
 fun SimWhitelistScreen(iccid: String, onBack: () -> Unit) {
     val language = LocalAppLanguage.current
-    val service = remember { SimCardService() }
+    val service = SimCardService.shared
     var url by remember(iccid) { mutableStateOf<String?>(null) }
     var loading by remember(iccid) { mutableStateOf(true) }
-    var webView by remember { mutableStateOf<WebView?>(null) }
-    val currentWebView by rememberUpdatedState(webView)
-    DisposableEffect(Unit) { onDispose { currentWebView?.destroy() } }
     LaunchedEffect(iccid) {
+        loading = true
         url = service.whitelistUrl(iccid)
         loading = false
     }
@@ -38,15 +36,22 @@ fun SimWhitelistScreen(iccid: String, onBack: () -> Unit) {
             val page = url
             if (!loading && page == null) Text(language.text("WhitelistUnavailable", "当前设备的 ICCID 未匹配白名单服务平台"),
                 modifier = Modifier.padding(16.dp))
-            if (page != null) AndroidView(factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    webViewClient = WebViewClient()
-                    loadUrl(page)
-                }.also { webView = it }
-            }, update = { view -> if (view.url != page) view.loadUrl(page) },
-                modifier = Modifier.fillMaxSize())
+            if (page != null) AndroidView(
+                factory = { context ->
+                    WebView(context).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        webViewClient = WebViewClient()
+                        loadUrl(page)
+                    }
+                },
+                update = { view -> if (view.url != page) view.loadUrl(page) },
+                onRelease = { view ->
+                    view.stopLoading()
+                    view.destroy()
+                },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

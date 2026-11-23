@@ -9,29 +9,36 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.scluzlep.newmangps.data.MapSource
 import com.scluzlep.newmangps.data.model.TrackPoint
 import com.scluzlep.newmangps.data.repository.NewsmyRepository
-import com.scluzlep.newmangps.ui.screens.map.AmapJsMap
+import com.scluzlep.newmangps.data.util.CoordinateTransform
 import com.scluzlep.newmangps.ui.LocalAppLanguage
+import com.scluzlep.newmangps.ui.screens.map.AmapJsMap
+import com.scluzlep.newmangps.ui.screens.map.MapLayerDialog
 import com.scluzlep.newmangps.ui.theme.*
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackReplayScreen(
     teid: String,
     repository: NewsmyRepository,
+    mapSource: MapSource = MapSource.AMAP,
+    satellite: Boolean = false,
+    traffic: Boolean = false,
+    fallbackCenter: CoordinateTransform.LatLng? = null,
+    onSelectMapSource: (MapSource) -> Unit = {},
+    onToggleSatellite: (Boolean) -> Unit = {},
+    onToggleTraffic: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
     val language = LocalAppLanguage.current
-    val scope = rememberCoroutineScope()
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var trackPoints by remember { mutableStateOf<List<TrackPoint>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
@@ -39,6 +46,7 @@ fun TrackReplayScreen(
     var currentIndex by remember { mutableIntStateOf(0) }
     var isPlaying by remember { mutableStateOf(false) }
     var speedMultiplier by remember { mutableIntStateOf(60) }
+    var showLayerDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(teid, selectedDate) {
         loading = true
@@ -71,6 +79,14 @@ fun TrackReplayScreen(
     }
 
     val currentPoint = trackPoints.getOrNull(currentIndex)
+    val mapPoints = remember(trackPoints, fallbackCenter) {
+        if (trackPoints.isNotEmpty()) {
+            trackPoints.map { CoordinateTransform.LatLng(it.rawLat, it.rawLon) }
+        } else {
+            listOfNotNull(fallbackCenter)
+        }
+    }
+    val routeSpeeds = remember(trackPoints) { trackPoints.map { it.speed } }
 
     Scaffold(
         topBar = {
@@ -94,6 +110,11 @@ fun TrackReplayScreen(
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = language.text("Back", "返回"))
                     }
                 },
+                actions = {
+                    IconButton(onClick = { showLayerDialog = true }) {
+                        Icon(Icons.Default.Layers, contentDescription = language.text("MapSource", "地图源"))
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
@@ -103,18 +124,32 @@ fun TrackReplayScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (trackPoints.isNotEmpty()) {
-                AmapJsMap(
-                    points = trackPoints.map { it.gcjLatLng },
-                    markerIndex = currentIndex,
-                    markerDirection = currentPoint?.direction ?: 0,
-                    followMarker = true,
-                    routeSpeeds = trackPoints.map { it.speed },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(language.text("NoValidTrackPoints", "此时间段没有有效轨迹点"))
+            AmapJsMap(
+                points = mapPoints,
+                markerIndex = if (trackPoints.isNotEmpty()) currentIndex else 0,
+                mapSource = mapSource,
+                satellite = satellite,
+                traffic = traffic,
+                markerDirection = if (trackPoints.isNotEmpty()) currentPoint?.direction ?: 0 else 0,
+                followMarker = trackPoints.isNotEmpty(),
+                routeSpeeds = routeSpeeds,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            if (!loading && trackPoints.isEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                    shadowElevation = 4.dp
+                ) {
+                    Text(
+                        text = language.text("NoValidTrackPoints", "此时间段没有有效轨迹点"),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             }
 
@@ -145,7 +180,7 @@ fun TrackReplayScreen(
                         )
                         Text(
                             text = currentPoint?.let {
-                                "${language.text("Speed", "速度")}: ${it.speed} ${language.text("KMH", "km/h")} · ${language.text("Mileage", "里程")}: ${String.format("%.2f", it.mileageKm)} km"
+                                "${language.text("Speed", "速度")}: ${it.speed} ${language.text("KMH", "km/h")} · ${language.text("Mileage", "里程")}: ${String.format(Locale.US, "%.2f", it.mileageKm)} km"
                             } ?: language.text("NoTrackData", "暂无轨迹数据"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -208,6 +243,18 @@ fun TrackReplayScreen(
                 }
             }
         }
+    }
+
+    if (showLayerDialog) {
+        MapLayerDialog(
+            currentSource = mapSource,
+            satellite = satellite,
+            traffic = traffic,
+            onSelectSource = onSelectMapSource,
+            onToggleSatellite = onToggleSatellite,
+            onToggleTraffic = onToggleTraffic,
+            onDismiss = { showLayerDialog = false }
+        )
     }
 }
 

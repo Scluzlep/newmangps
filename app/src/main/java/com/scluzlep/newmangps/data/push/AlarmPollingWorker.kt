@@ -21,14 +21,21 @@ class AlarmPollingWorker(
 
     override suspend fun doWork(): Result {
         val user = inputData.getString("USER") ?: return Result.failure()
-        val server = inputData.getString("SERVER") ?: return Result.failure()
-        repository.restoreServer(server)
-        val teids = inputData.getStringArray("TEIDS")?.filter(String::isNotBlank).orEmpty()
+        val rawServer = inputData.getString("SERVER") ?: return Result.failure()
+        repository.restoreServer(rawServer)
+        val server = NewsmyRepository.normalizeServer(rawServer)
+        val prefs = context.getSharedPreferences("alarm_polling", Context.MODE_PRIVATE)
+        val primaryTeidsKey = teidsPrefKey(server, user)
+        val legacyTeidsKey = teidsPrefKey(rawServer, user)
+        val persistedTeids = prefs.getStringSet(primaryTeidsKey, null)
+            ?: if (legacyTeidsKey != primaryTeidsKey) prefs.getStringSet(legacyTeidsKey, null) else null
+        val teids = persistedTeids?.toList()?.filter(String::isNotBlank)
+            ?: inputData.getStringArray("TEIDS")?.filter(String::isNotBlank)
+            ?: emptyList()
         if (teids.isEmpty()) return Result.failure()
         if (!context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
                 .getBoolean("push_alarm", true)) return Result.success()
         if (!AlarmNotificationManager.canNotify(context)) return Result.success()
-        val prefs = context.getSharedPreferences("alarm_polling", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis() / 1000
         for (teid in teids) {
             val key = "${server.hashCode()}_${user.hashCode()}_${teid.hashCode()}"
@@ -52,7 +59,7 @@ class AlarmPollingWorker(
                         user = user
                     )
                     if (!shown) return Result.retry()
-                    prefs.edit().putStringSet(seenKey, seen.toSet()).apply()
+                    prefs.edit().putStringSet(seenKey, HashSet(seen)).apply()
                 }
                 if (!page.hasMore) break
                 offset += 200
@@ -60,13 +67,16 @@ class AlarmPollingWorker(
             if (offset >= 10_000) return Result.retry()
             prefs.edit()
                 .putLong("cursor_$key", now)
-                .putStringSet(seenKey, seen.toList().takeLast(300).toSet())
+                .putStringSet(seenKey, HashSet(seen.toList().takeLast(300)))
                 .apply()
         }
         return Result.success()
     }
 
     companion object {
+        private fun teidsPrefKey(server: String, user: String): String =
+            "teids_${server.hashCode()}_${user.hashCode()}"
+
         fun cancel(context: Context, user: String) {
             val prefs = context.getSharedPreferences("alarm_polling", Context.MODE_PRIVATE)
             val key = user.hashCode().toString()
@@ -75,25 +85,28 @@ class AlarmPollingWorker(
         }
 
         fun schedule(context: Context, user: String, teids: List<String>, server: String) {
+            val normalizedServer = NewsmyRepository.normalizeServer(server)
+            val cleanTeids = teids.filter(String::isNotBlank).distinct()
             val prefs = context.getSharedPreferences("alarm_polling", Context.MODE_PRIVATE)
             val key = user.hashCode().toString()
             val previous = prefs.getString("active_work", null)
             if (previous != null && previous != key) {
                 WorkManager.getInstance(context).cancelUniqueWork("alarm_$previous")
             }
-            if (!prefs.contains("cursor_$key")) {
-                prefs.edit().putLong("cursor_$key", System.currentTimeMillis() / 1000).apply()
-            }
             val started = System.currentTimeMillis() / 1000
             val editor = prefs.edit()
-            teids.forEach { teid ->
-                val deviceKey = "${server.hashCode()}_${user.hashCode()}_${teid.hashCode()}"
+            if (!prefs.contains("cursor_$key")) {
+                editor.putLong("cursor_$key", started)
+            }
+            cleanTeids.forEach { teid ->
+                val deviceKey = "${normalizedServer.hashCode()}_${user.hashCode()}_${teid.hashCode()}"
                 if (!prefs.contains("cursor_$deviceKey")) editor.putLong("cursor_$deviceKey", started)
             }
+            editor.putStringSet(teidsPrefKey(normalizedServer, user), HashSet(cleanTeids))
+            editor.putString("active_work", key)
             editor.apply()
-            prefs.edit().putString("active_work", key).apply()
             val request = PeriodicWorkRequestBuilder<AlarmPollingWorker>(15, TimeUnit.MINUTES)
-                .setInputData(workDataOf("USER" to user, "TEIDS" to teids.toTypedArray(), "SERVER" to server))
+                .setInputData(workDataOf("USER" to user, "SERVER" to normalizedServer))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
                 )

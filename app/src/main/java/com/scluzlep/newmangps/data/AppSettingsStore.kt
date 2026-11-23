@@ -9,8 +9,13 @@ data class AppSettings(
     val hideAddress: Boolean = false,
     val autoCenterMap: Boolean = true,
     val quickLoadDevices: Boolean = false,
-    val pushAlarm: Boolean = true
-)
+    val pushAlarm: Boolean = true,
+    val mapSourceId: String = MapSource.AMAP.id,
+    val mapSatellite: Boolean = false,
+    val mapTraffic: Boolean = false
+) {
+    val mapSource: MapSource get() = MapSource.fromId(mapSourceId)
+}
 
 class AppSettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
@@ -19,16 +24,24 @@ class AppSettingsStore(context: Context) {
         hideAddress = preferences.getBoolean("hide_address", false),
         autoCenterMap = preferences.getBoolean("auto_center_map", true),
         quickLoadDevices = preferences.getBoolean("quick_load_devices", false),
-        pushAlarm = preferences.getBoolean("push_alarm", true)
+        pushAlarm = preferences.getBoolean("push_alarm", true),
+        mapSourceId = MapSource.fromId(preferences.getString("map_source", MapSource.AMAP.id)).id,
+        mapSatellite = preferences.getBoolean("map_satellite", false),
+        mapTraffic = preferences.getBoolean("map_traffic", false)
     ))
     val state = _state.asStateFlow()
 
     fun update(value: AppSettings) {
-        preferences.edit().putInt("refresh_seconds", value.refreshSeconds)
-            .putBoolean("hide_address", value.hideAddress)
-            .putBoolean("auto_center_map", value.autoCenterMap)
-            .putBoolean("quick_load_devices", value.quickLoadDevices)
-            .putBoolean("push_alarm", value.pushAlarm).apply()
-        _state.value = value
+        val normalized = value.copy(mapSourceId = MapSource.fromId(value.mapSourceId).id)
+        preferences.edit().putInt("refresh_seconds", normalized.refreshSeconds)
+            .putBoolean("hide_address", normalized.hideAddress)
+            .putBoolean("auto_center_map", normalized.autoCenterMap)
+            .putBoolean("quick_load_devices", normalized.quickLoadDevices)
+            .putBoolean("push_alarm", normalized.pushAlarm)
+            .putString("map_source", normalized.mapSourceId)
+            .putBoolean("map_satellite", normalized.mapSatellite)
+            .putBoolean("map_traffic", normalized.mapTraffic)
+            .apply()
+        _state.value = normalized
     }
 }

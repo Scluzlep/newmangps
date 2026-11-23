@@ -109,21 +109,35 @@ fun MembershipScreen(
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             paymentMessage?.let { item { Text(it, modifier = Modifier.padding(vertical = 8.dp)) } }
             pending?.let { order -> item {
-                ListItem(headlineContent = { Text(language.text("PendingOrder", "待确认订单")) },
-                    supportingContent = { Text("${order.orderId} · ${order.amount} ${order.currency}") },
-                    trailingContent = { TextButton(onClick = {
-                        scope.launch {
-                            paymentBusy = true
-                            val result = repository.finishPayment(order)
-                            if (result.getOrDefault(false)) {
-                                pending = null
+                OutlinedCard(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(language.text("PendingOrder", "待确认订单"), style = MaterialTheme.typography.titleMedium)
+                        Text("${order.orderId} · ${String.format(Locale.US, "%.2f", order.amount)} ${order.currency}",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    paymentBusy = true
+                                    val result = repository.finishPayment(order)
+                                    if (result.getOrDefault(false)) {
+                                        pending = null
+                                        sessionStore.clearPendingPayment(order.orderId)
+                                        paymentMessage = language.text("PaymentServiceUpdated", "支付成功，服务已更新")
+                                        refresh()
+                                    } else paymentMessage = result.exceptionOrNull()?.message ?: language.text("PaymentNotConfirmed", "尚未确认付款")
+                                    paymentBusy = false
+                                }
+                            }, enabled = !paymentBusy) { Text(language.text("Search", "查询")) }
+                            TextButton(onClick = {
                                 sessionStore.clearPendingPayment(order.orderId)
-                                paymentMessage = language.text("PaymentServiceUpdated", "支付成功，服务已更新")
-                                refresh()
-                            } else paymentMessage = result.exceptionOrNull()?.message ?: language.text("PaymentNotConfirmed", "尚未确认付款")
-                            paymentBusy = false
+                                pending = null
+                                paymentMessage = null
+                            }, enabled = !paymentBusy) {
+                                Text(language.text("CancelOrder", if (language.code == "zh-CN" || language.code == "zh-TW") "取消订单" else "Cancel order"))
+                            }
                         }
-                    }, enabled = !paymentBusy) { Text(language.text("Search", "查询")) } })
+                    }
+                }
             } }
             val buyType = if ((detail?.limitTimeSeconds ?: 0) in 1..100) 7 else 1
             val visiblePrices = prices.filter { price ->
@@ -158,12 +172,12 @@ fun MembershipScreen(
                 Text(language.text("OrderHistory", "订单记录"), style = MaterialTheme.typography.titleMedium)
             }
             items(orders) { order ->
-                val time = if (order.timeSeconds > 0) SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                val time = if (order.timeSeconds > 0) SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
                     .format(Date(order.timeSeconds * 1000)) else "--"
                 ListItem(
                     headlineContent = { Text(order.title.ifBlank { "${language.text("OrderID", "订单")} ${order.orderId}" }) },
                     supportingContent = { Text("$time · ${order.content.ifBlank { order.orderId }}") },
-                    trailingContent = { Text("${order.amount} ${order.currency}") }
+                    trailingContent = { Text("${String.format(Locale.US, "%.2f", order.amount)} ${order.currency}") }
                 )
                 HorizontalDivider()
             }
@@ -179,7 +193,8 @@ fun MembershipScreen(
                     Text("${plans.firstOrNull { it.id == price.planId }?.name ?: language.text("PayPlan", "套餐")} · ${price.buyValue} ${language.text("Day", "天")}")
                     if (paymentBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     methods.forEach { method ->
-                        val due = (price.price - method.discount).coerceAtLeast(1.0)
+                        val due = NewsmyRepository.calculatePaymentAmount(price.price, method.discount)
+                        val formattedDue = NewsmyRepository.formatPaymentAmount(due)
                         TextButton(onClick = {
                             val title = plans.firstOrNull { it.id == price.planId }?.name ?: "设备服务"
                             scope.launch {
@@ -197,7 +212,7 @@ fun MembershipScreen(
                                 paymentBusy = false
                             }
                         }, enabled = !paymentBusy) {
-                            Text("${if (method.method == "wxpay") language.text("WeChatPay", "微信支付") else language.text("Alipay", "支付宝")} · $due ${price.currency}")
+                            Text("${if (method.method == "wxpay") language.text("WeChatPay", "微信支付") else language.text("Alipay", "支付宝")} · $formattedDue ${price.currency}")
                         }
                     }
                 }

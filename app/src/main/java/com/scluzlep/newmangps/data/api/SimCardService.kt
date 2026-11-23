@@ -1,5 +1,6 @@
 package com.scluzlep.newmangps.data.api
 
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ import java.net.URLEncoder
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 data class SimProvider(
@@ -29,11 +31,19 @@ data class SimProvider(
     val probeError: Boolean = false,
 )
 
-class SimCardService {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .build()
+class SimCardService(
+    private val client: OkHttpClient = sharedClient
+) {
+    companion object {
+        val sharedClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .build()
+        }
+
+        val shared: SimCardService by lazy { SimCardService(sharedClient) }
+    }
 
     suspend fun providers(sim: String): List<SimProvider> = withContext(Dispatchers.IO) {
         val encoded = URLEncoder.encode(sim.trim(), "UTF-8")
@@ -82,19 +92,20 @@ class SimCardService {
                 ?: return@use SimProvider(name, purchaseUrl, false, probeError = true)
             val detected = when (name) {
                 "迪信" -> obj.get("data")?.takeIf { it.isJsonArray }?.asJsonArray
-                    ?.firstOrNull()?.asJsonObject?.let { hasText(it, "ICCID") && hasText(it, "SimCard") } == true
-                "三维智达" -> obj.get("resultcode")?.asString?.isNotBlank() == true &&
-                    obj.get("cardmsg")?.asJsonObject?.let { hasText(it, "iccid") } == true
-                "深圳共展" -> obj.get("code")?.asInt == 0 && obj.get("msg")?.asString == "success" &&
-                    obj.get("data")?.asJsonObject?.let { hasText(it, "sim") } == true
-                "流信" -> obj.get("code")?.asInt == 0
-                "巨升" -> obj.get("code")?.asInt == 0 && obj.get("message")?.asString == "success"
-                "飞讯飞通" -> obj.get("code")?.asString?.isNotBlank() == true &&
-                    obj.get("data")?.asJsonObject?.let { hasText(it, "iccid") } == true
-                "拓普互联" -> obj.get("code")?.asString == "0" && obj.get("state")?.asString == "ok"
+                    ?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject
+                    ?.let { hasText(it, "ICCID") && hasText(it, "SimCard") } == true
+                "三维智达" -> obj.stringOrNull("resultcode") != null &&
+                    obj.objOrNull("cardmsg")?.let { hasText(it, "iccid") } == true
+                "深圳共展" -> obj.intOrNull("code") == 0 && obj.stringOrNull("msg") == "success" &&
+                    obj.objOrNull("data")?.let { hasText(it, "sim") } == true
+                "流信" -> obj.intOrNull("code") == 0
+                "巨升" -> obj.intOrNull("code") == 0 && obj.stringOrNull("message") == "success"
+                "飞讯飞通" -> obj.stringOrNull("code") != null &&
+                    obj.objOrNull("data")?.let { hasText(it, "iccid") } == true
+                "拓普互联" -> obj.stringOrNull("code") == "0" && obj.stringOrNull("state") == "ok"
                 else -> false
             }
-            val result = obj.get("result")?.takeIf { it.isJsonObject }?.asJsonObject
+            val result = obj.objOrNull("result")
             val expiry = if (name == "流信" && detected) obj.stringOrNull("end_time") else null
             val remaining = if (name == "巨升" && detected) result?.stringOrNull("surplusFlow") else null
             SimProvider(name, purchaseUrl, detected, expiry = expiry, remainingFlow = remaining,
@@ -138,12 +149,18 @@ class SimCardService {
             val obj = if (response.isSuccessful) response.body?.string()?.let {
                 JsonParser.parseString(it).takeIf { value -> value.isJsonObject }?.asJsonObject
             } else null
-            val data = obj?.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
+            val data = obj?.objOrNull("data")
             SimProvider(name, purchaseUrl,
-                obj?.get("code")?.asInt == 0 && data?.get("iccid").truthy() && data?.get("msisdn").truthy(),
+                obj?.intOrNull("code") == 0 && data?.get("iccid").truthy() && data?.get("msisdn").truthy(),
                 probeError = !response.isSuccessful)
         }
     }.getOrElse { SimProvider("中网云通", purchaseUrl, false, probeError = true) }
+
+    private fun JsonObject.objOrNull(key: String): JsonObject? =
+        get(key)?.takeIf { it.isJsonObject }?.asJsonObject
+
+    private fun JsonObject.intOrNull(key: String): Int? =
+        get(key)?.takeIf { it.isJsonPrimitive }?.let { runCatching { it.asInt }.getOrNull() }
 
     private fun JsonObject.stringOrNull(key: String): String? =
         get(key)?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() }
@@ -152,14 +169,14 @@ class SimCardService {
     private fun expiryStatus(value: String?): Int {
         val text = value ?: return 0
         val parsed = runCatching {
-            LocalDateTime.parse(text, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            LocalDateTime.parse(text, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US))
                 .atZone(ZoneId.systemDefault()).toEpochSecond()
         }.getOrNull() ?: return 0
         val remaining = parsed - System.currentTimeMillis() / 1000
         return when { remaining < 0 -> -1; remaining <= 31L * 86400 -> 1; else -> 0 }
     }
 
-    private fun com.google.gson.JsonElement?.truthy(): Boolean = when {
+    private fun JsonElement?.truthy(): Boolean = when {
         this == null || isJsonNull -> false
         isJsonPrimitive && asJsonPrimitive.isBoolean -> asBoolean
         isJsonPrimitive && asJsonPrimitive.isNumber -> asDouble != 0.0
@@ -189,8 +206,9 @@ class SimCardService {
     private fun checkWhitelistSanwei(url: String): Boolean = runCatching {
         client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
             if (!response.isSuccessful) return@use false
-            val row = JsonParser.parseString(response.body?.string().orEmpty()).asJsonObject
-            row.get("cardmsg")?.asJsonObject?.let { hasText(it, "cardno") } == true
+            val row = JsonParser.parseString(response.body?.string().orEmpty())
+                .takeIf { it.isJsonObject }?.asJsonObject ?: return@use false
+            row.objOrNull("cardmsg")?.let { hasText(it, "cardno") } == true
         }
     }.getOrDefault(false)
 }

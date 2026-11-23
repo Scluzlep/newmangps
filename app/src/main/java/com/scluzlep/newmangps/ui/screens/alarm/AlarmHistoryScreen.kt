@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
@@ -73,10 +73,10 @@ fun AlarmHistoryScreen(
                 Text(language.text("NoAlarmsInPeriod", "所选时间内没有告警"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             LazyColumn {
-                items(alarms, key = AlarmItem::id) { alarm ->
+                itemsIndexed(alarms, key = { index, alarm -> "${index}_${alarm.id}" }) { _, alarm ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
                         Text(alarm.content, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                        Text("${alarm.teid} · ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(alarm.timeSeconds * 1000))}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${alarm.teid} · ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(alarm.timeSeconds * 1000))}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     HorizontalDivider()
                 }

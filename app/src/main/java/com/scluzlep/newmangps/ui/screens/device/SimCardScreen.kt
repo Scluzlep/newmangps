@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 fun SimCardScreen(detail: DeviceDetail?, onBack: () -> Unit, onWhitelist: () -> Unit) {
     val context = LocalContext.current
     val language = LocalAppLanguage.current
-    val service = remember { SimCardService() }
+    val service = SimCardService.shared
     val scope = rememberCoroutineScope()
     var card by remember(detail?.teid) { mutableStateOf(detail?.iccid?.takeIf { it.length > 10 } ?: detail?.sim.orEmpty()) }
     var providers by remember { mutableStateOf<List<SimProvider>>(emptyList()) }

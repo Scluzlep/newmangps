@@ -11,14 +11,20 @@ data class ApiResponse(
     @SerializedName("m_strServerVersion") val serverVersion: String? = null,
     @SerializedName("m_strRemoteIP") val remoteIP: String? = null,
     @SerializedName("m_arrField") val fields: List<String>? = null,
-    @SerializedName("m_arrRecord") val records: List<List<String>>? = null
+    @SerializedName("m_arrRecord") val records: List<List<String?>?>? = null
 ) {
     fun toRows(): List<Map<String, String>> {
         val fList = fields ?: return emptyList()
         val rList = records ?: return emptyList()
         return rList.map { row ->
-            fList.indices.associate { index ->
-                fList[index] to (if (index < row.size) row[index] else "")
+            val cells = row.orEmpty()
+            buildMap {
+                fList.indices.forEach { index ->
+                    val key = (fList as List<*>)[index] as? String
+                    if (key != null) {
+                        put(key, cells.getOrNull(index).orEmpty())
+                    }
+                }
             }
         }
     }
@@ -509,9 +515,9 @@ data class HealthSample(val timeSeconds: Long, val name: String, val value: Doub
 
 private fun String?.toNumber(): Int = this?.toIntOrNull() ?: 0
 
-private fun formatTimestamp(seconds: Long): String {
+internal fun formatTimestamp(seconds: Long): String {
     if (seconds <= 0) return "--"
-    val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
     return sdf.format(Date(seconds * 1000))
 }
 
@@ -521,15 +527,17 @@ private fun parseCoordinate(row: Map<String, String>, decimalKey: String, scaled
     return if (kotlin.math.abs(scaled) > 180.0) scaled / 10_000_000.0 else scaled
 }
 
-private fun parseDeviceTime(value: String?): Long {
-    val number = value?.toLongOrNull()
+internal fun parseDeviceTime(value: String?): Long {
+    val trimmed = value?.trim()
+    val number = trimmed?.toLongOrNull()
     if (number != null) return if (number > 10_000_000_000L) number / 1000 else number
-    if (value.isNullOrBlank()) return 0L
+    if (trimmed.isNullOrBlank()) return 0L
     val formats = listOf("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss")
     for (format in formats) {
-        runCatching {
-            return SimpleDateFormat(format, Locale.getDefault()).parse(value)?.time?.div(1000) ?: 0L
-        }
+        val parsed = runCatching {
+            SimpleDateFormat(format, Locale.US).parse(trimmed)?.time?.div(1000)
+        }.getOrNull()
+        if (parsed != null) return parsed
     }
     return 0L
 }

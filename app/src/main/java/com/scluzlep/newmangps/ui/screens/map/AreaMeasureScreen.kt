@@ -6,23 +6,32 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.scluzlep.newmangps.data.MapSource
 import com.scluzlep.newmangps.data.model.GeofenceItem
 import com.scluzlep.newmangps.data.repository.NewsmyRepository
 import com.scluzlep.newmangps.data.util.CoordinateTransform
 import com.scluzlep.newmangps.ui.LocalAppLanguage
 import kotlinx.coroutines.launch
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sin
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AreaMeasureScreen(
-    teid: String, center: CoordinateTransform.LatLng?, repository: NewsmyRepository,
+    teid: String,
+    center: CoordinateTransform.LatLng?,
+    repository: NewsmyRepository,
+    mapSource: MapSource = MapSource.AMAP,
+    satellite: Boolean = false,
+    traffic: Boolean = false,
+    onSelectMapSource: (MapSource) -> Unit = {},
+    onToggleSatellite: (Boolean) -> Unit = {},
+    onToggleTraffic: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
     val language = LocalAppLanguage.current
@@ -32,6 +41,7 @@ fun AreaMeasureScreen(
     var shapes by remember { mutableStateOf<List<GeofenceItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showLayerDialog by remember { mutableStateOf(false) }
 
     fun refresh() {
         scope.launch {
@@ -48,13 +58,25 @@ fun AreaMeasureScreen(
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(language.text("MeasureArea", "面积测量")) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.text("Back", "返回")) } }
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, language.text("Back", "返回"))
+                }
+            },
+            actions = {
+                IconButton(onClick = { showLayerDialog = true }) {
+                    Icon(Icons.Default.Layers, contentDescription = language.text("MapSource", "地图源"))
+                }
+            }
         )
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             AmapJsMap(
                 points = listOfNotNull(vertices.firstOrNull() ?: center),
                 markerIndex = 0,
+                mapSource = mapSource,
+                satellite = satellite,
+                traffic = traffic,
                 onMapTap = { vertices = vertices + it },
                 polygonPoints = vertices,
                 modifier = Modifier.fillMaxWidth().weight(1f)
@@ -68,10 +90,7 @@ fun AreaMeasureScreen(
                 OutlinedTextField(name, { name = it }, label = { Text(language.text("ShapeName", "形状名称")) }, modifier = Modifier.fillMaxWidth())
                 Button(
                     onClick = {
-                        val geometry = vertices.joinToString(";") { vertex ->
-                            val point = CoordinateTransform.gcj02ToWgs84(vertex.latitude, vertex.longitude)
-                            String.format(Locale.US, "%.7f,%.7f", point.longitude, point.latitude)
-                        }
+                        val geometry = formatWgsGeometry(vertices)
                         scope.launch {
                             val result = if (shapes.any { it.name == name }) {
                                 repository.updateUserShape(name, geometry)
@@ -95,10 +114,7 @@ fun AreaMeasureScreen(
                                 Row {
                                     TextButton(onClick = {
                                         name = shape.name
-                                        vertices = shape.geometry.split(';').mapNotNull { pair ->
-                                            val coords = pair.split(',').mapNotNull(String::toDoubleOrNull)
-                                            if (coords.size != 2) null else CoordinateTransform.wgs84ToGcj02(coords[1], coords[0])
-                                        }
+                                        vertices = parseWgsGeometry(shape.geometry)
                                     }) { Text(language.text("View", "查看")) }
                                     IconButton(onClick = {
                                         scope.launch {
@@ -114,6 +130,18 @@ fun AreaMeasureScreen(
                 }
             }
         }
+    }
+
+    if (showLayerDialog) {
+        MapLayerDialog(
+            currentSource = mapSource,
+            satellite = satellite,
+            traffic = traffic,
+            onSelectSource = onSelectMapSource,
+            onToggleSatellite = onToggleSatellite,
+            onToggleTraffic = onToggleTraffic,
+            onDismiss = { showLayerDialog = false }
+        )
     }
 }
 

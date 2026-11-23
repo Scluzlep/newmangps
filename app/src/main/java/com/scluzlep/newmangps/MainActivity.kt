@@ -16,13 +16,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -41,6 +45,7 @@ import com.scluzlep.newmangps.data.api.AmapPlace
 import com.scluzlep.newmangps.data.util.CoordinateTransform
 import com.scluzlep.newmangps.data.repository.NewsmyRepository
 import com.scluzlep.newmangps.data.LoginSessionStore
+import com.scluzlep.newmangps.data.MapSource
 import com.scluzlep.newmangps.data.SavedLogin
 import com.scluzlep.newmangps.data.AppSettingsStore
 import com.scluzlep.newmangps.data.push.AlarmPollingWorker
@@ -66,9 +71,13 @@ import com.scluzlep.newmangps.ui.screens.account.SupportScreen
 import com.scluzlep.newmangps.ui.screens.account.SystemSettingsScreen
 import com.scluzlep.newmangps.ui.screens.alarm.AlarmHistoryScreen
 import com.scluzlep.newmangps.ui.screens.login.LoginScreen
-import com.scluzlep.newmangps.ui.screens.map.TrackingMapScreen
+import com.scluzlep.newmangps.ui.screens.map.AmapJsMap
 import com.scluzlep.newmangps.ui.screens.map.AreaMeasureScreen
 import com.scluzlep.newmangps.ui.screens.map.IndoorOffsetScreen
+import com.scluzlep.newmangps.ui.screens.map.MapLayerDialog
+import com.scluzlep.newmangps.ui.screens.map.TrackingMapScreen
+import com.scluzlep.newmangps.ui.screens.map.formatWgsGeometry
+import com.scluzlep.newmangps.ui.screens.map.parseWgsGeometry
 import com.scluzlep.newmangps.ui.screens.track.TrackReplayScreen
 import com.scluzlep.newmangps.ui.screens.media.DeviceMediaScreen
 import com.scluzlep.newmangps.ui.screens.media.VoiceSendScreen
@@ -93,6 +102,11 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         alarmIntent.value = intent
+    }
+
+    override fun onDestroy() {
+        languageStore.release()
+        super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -159,14 +173,62 @@ class MainActivity : ComponentActivity() {
                 var shareError by remember { mutableStateOf<String?>(null) }
                 var commandParameter by remember { mutableStateOf("") }
                 var loadGeneration by remember { mutableIntStateOf(0) }
+                var capabilitiesLoading by remember { mutableStateOf(false) }
 
-                suspend fun reloadCommandCapabilities() {
-                    modelCapabilities = emptyList()
-                    commandPermissionDisabled = true
-                    modelCapabilities = repository.getDeviceModels().getOrNull().orEmpty()
-                    commandPermissionDisabled = repository.getUserPrivilege(
-                        repository.currentUser.value.orEmpty()
-                    ).getOrNull()?.flags?.let { it and 256 != 0 } ?: false
+                val onSelectMapSource: (MapSource) -> Unit = { source ->
+                    val current = settingsStore.state.value
+                    settingsStore.update(
+                        current.copy(
+                            mapSourceId = source.id,
+                            mapSatellite = current.mapSatellite && source.supportsSatellite,
+                            mapTraffic = current.mapTraffic && source.supportsTraffic
+                        )
+                    )
+                }
+                val onToggleMapSatellite: (Boolean) -> Unit = { enabled ->
+                    val current = settingsStore.state.value
+                    settingsStore.update(current.copy(mapSatellite = enabled && current.mapSource.supportsSatellite))
+                }
+                val onToggleMapTraffic: (Boolean) -> Unit = { enabled ->
+                    val current = settingsStore.state.value
+                    settingsStore.update(current.copy(mapTraffic = enabled && current.mapSource.supportsTraffic))
+                }
+
+                fun saveSessionSafely(login: SavedLogin) {
+                    runCatching { sessionStore.save(login) }.onFailure {
+                        Toast.makeText(
+                            this@MainActivity,
+                            language.text("SaveLoginFailed", "登录成功，但自动登录保存失败"),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+
+                fun navigateMainTab(route: String) {
+                    navController.navigate(route) {
+                        popUpTo("tracking") { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+
+                suspend fun reloadCommandCapabilities(force: Boolean = true) {
+                    if (capabilitiesLoading) return
+                    if (!force && modelCapabilities.isNotEmpty()) return
+                    capabilitiesLoading = true
+                    try {
+                        if (force) {
+                            modelCapabilities = emptyList()
+                            commandPermissionDisabled = true
+                        }
+                        val models = repository.getDeviceModels().getOrNull().orEmpty()
+                        if (models.isNotEmpty()) modelCapabilities = models
+                        commandPermissionDisabled = repository.getUserPrivilege(
+                            repository.currentUser.value.orEmpty()
+                        ).getOrNull()?.flags?.let { it and 256 != 0 } ?: false
+                    } finally {
+                        capabilitiesLoading = false
+                    }
                 }
 
                 fun canSendMapCommand(command: String): Boolean {
@@ -190,41 +252,45 @@ class MainActivity : ComponentActivity() {
                     val generation = ++loadGeneration
                     scope.launch {
                         isRefreshing = true
-                        val posResult = repository.getLastPosition(imei)
-                        if (settings.quickLoadDevices && currentImei == imei && generation == loadGeneration) {
-                            positionState = posResult.getOrNull()
-                        }
-                        val detailResult = repository.getDeviceDetail(imei)
-                        val fenceResult = repository.getGeofences(imei)
-                        if (currentImei != imei || generation != loadGeneration) return@launch
-                        val loadedPosition = posResult.getOrNull()
-                        if (loadedPosition == null ||
-                            loadedPosition.timeSeconds >= (positionState?.timeSeconds ?: 0)
-                        ) positionState = loadedPosition
-                        detailState = detailResult.getOrNull()
-                        fencesState = fenceResult.getOrNull().orEmpty()
-                        fencesFailed = fenceResult.isFailure
-                        dataError = listOfNotNull(
-                            posResult.exceptionOrNull()?.message,
-                            detailResult.exceptionOrNull()?.message,
-                            fenceResult.exceptionOrNull()?.message
-                        )
-                            .distinct()
-                            .joinToString("；")
-                            .ifBlank { null }
-                        if (loadedPosition == null || settings.hideAddress) {
-                            addressText = ""
-                        } else {
-                            val positionTime = loadedPosition.timeSeconds
-                            scope.launch {
-                                repository.reverseGeocode(loadedPosition).getOrNull()?.let { address ->
-                                    if (currentImei == imei &&
-                                        positionState?.timeSeconds == positionTime
-                                    ) addressText = address
+                        try {
+                            if (modelCapabilities.isEmpty()) reloadCommandCapabilities(force = false)
+                            val posResult = repository.getLastPosition(imei)
+                            if (settings.quickLoadDevices && currentImei == imei && generation == loadGeneration) {
+                                positionState = posResult.getOrNull()
+                            }
+                            val detailResult = repository.getDeviceDetail(imei)
+                            val fenceResult = repository.getGeofences(imei)
+                            if (currentImei != imei || generation != loadGeneration) return@launch
+                            val loadedPosition = posResult.getOrNull()
+                            if (loadedPosition == null ||
+                                loadedPosition.timeSeconds >= (positionState?.timeSeconds ?: 0)
+                            ) positionState = loadedPosition
+                            detailState = detailResult.getOrNull()
+                            fencesState = fenceResult.getOrNull().orEmpty()
+                            fencesFailed = fenceResult.isFailure
+                            dataError = listOfNotNull(
+                                posResult.exceptionOrNull()?.message,
+                                detailResult.exceptionOrNull()?.message,
+                                fenceResult.exceptionOrNull()?.message
+                            )
+                                .distinct()
+                                .joinToString("；")
+                                .ifBlank { null }
+                            if (loadedPosition == null || settings.hideAddress) {
+                                addressText = ""
+                            } else {
+                                val positionTime = loadedPosition.timeSeconds
+                                scope.launch {
+                                    repository.reverseGeocode(loadedPosition).getOrNull()?.let { address ->
+                                        if (currentImei == imei &&
+                                            positionState?.timeSeconds == positionTime
+                                        ) addressText = address
+                                    }
                                 }
                             }
+                        } finally {
+                            if (generation == loadGeneration) isRefreshing = false
                         }
-                        isRefreshing = false
                     }
                 }
 
@@ -305,10 +371,11 @@ class MainActivity : ComponentActivity() {
                         it.getStringExtra("alarm_server") == repository.currentServer &&
                             it.getStringExtra("alarm_user") == repository.currentUser.value
                     }?.getStringExtra("alarm_teid")
+                    if (requested != null) alarmIntent.value = null
                     currentImei = available.firstOrNull { it.teid == requested }?.teid ?: available.first().teid
                     loadDeviceData(currentImei)
                     scope.launch {
-                        reloadCommandCapabilities()
+                        reloadCommandCapabilities(force = true)
                     }
                     if (settings.pushAlarm) AlarmPollingWorker.schedule(
                         this@MainActivity, repository.currentUser.value ?: account,
@@ -336,13 +403,13 @@ class MainActivity : ComponentActivity() {
                         mapFocusPoint = null
                         selectedPlace = null
                         loadDeviceData(target)
-                        navController.navigate("tracking") { launchSingleTop = true }
+                        navigateMainTab("tracking")
                         alarmIntent.value = null
                     }
                 }
 
                 LaunchedEffect(Unit) {
-                    val saved = sessionStore.load()
+                    val saved = runCatching { sessionStore.load() }.getOrNull()
                     if (saved == null) {
                         navController.navigate("login") { popUpTo("startup") { inclusive = true } }
                         return@LaunchedEffect
@@ -370,7 +437,13 @@ class MainActivity : ComponentActivity() {
                     startDestination = "startup"
                 ) {
                     composable("startup") {
-                        Column(Modifier.fillMaxWidth().padding(32.dp)) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                                .padding(32.dp)
+                        ) {
                             Text(language.text("RestoringLogin", "正在恢复登录"))
                             LinearProgressIndicator(Modifier.fillMaxWidth())
                         }
@@ -383,8 +456,9 @@ class MainActivity : ComponentActivity() {
                                 repository.restoreServer(it)
                                 selectedServer = repository.currentServer
                             },
-                            onLoginClick = { account, password, isImei ->
+                            onLoginClick = { rawAccount, password, isImei ->
                                 scope.launch {
+                                    val account = rawAccount.trim()
                                     isLoginLoading = true
                                     loginError = null
                                     if (account.isBlank() || password.isBlank()) {
@@ -404,11 +478,7 @@ class MainActivity : ComponentActivity() {
                                         Result.failure(result.exceptionOrNull() ?: IllegalStateException("登录失败"))
                                     }
                                     if (available.isSuccess && available.getOrNull().orEmpty().isNotEmpty()) {
-                                        runCatching {
-                                            sessionStore.save(SavedLogin(account, password, isImei, repository.currentServer))
-                                        }.onFailure {
-                                            Toast.makeText(this@MainActivity, language.text("SaveLoginFailed", "登录成功，但自动登录保存失败"), Toast.LENGTH_LONG).show()
-                                        }
+                                        saveSessionSafely(SavedLogin(account, password, isImei, repository.currentServer))
                                         enterDashboard(account, available.getOrThrow())
                                     } else {
                                         loginError = available.exceptionOrNull()?.message ?: language.text("NoAccountDevices", "该账号下没有设备")
@@ -450,7 +520,7 @@ class MainActivity : ComponentActivity() {
                                 dataError = null
                                 loadDeviceData(device.teid)
                             },
-                            onNavigateTracking = { navController.navigate("tracking") },
+                            onNavigateTracking = { navigateMainTab("tracking") },
                             onNavigateTrackHistory = { navController.navigate("replay") },
                             onNavigateAlarms = { loadAlarmHistory(); navController.navigate("alarms") },
                             onNavigateGeofence = { showFences = true },
@@ -515,7 +585,7 @@ class MainActivity : ComponentActivity() {
                             onSimCard = { navController.navigate("sim_card") },
                             onDeviceParameters = { navController.navigate("device_parameters") },
                             onWifiMarks = { navController.navigate("wifi_marks") },
-                            onManageAccount = { loadAccountUsers(); navController.navigate("account") },
+                            onManageAccount = { loadAccountUsers(); navigateMainTab("account") },
                             onDeviceCommand = { navController.navigate("commands") }
                         )
                     }
@@ -533,8 +603,8 @@ class MainActivity : ComponentActivity() {
                             loading = accountLoading,
                             errorMessage = accountError,
                             onBack = { navController.popBackStack() },
-                            onMap = { navController.navigate("tracking") { launchSingleTop = true } },
-                            onFeatures = { navController.navigate("dashboard") { launchSingleTop = true } },
+                            onMap = { navigateMainTab("tracking") },
+                            onFeatures = { navigateMainTab("dashboard") },
                             onRefresh = { loadAccountUsers() },
                             onStats = { navController.navigate("stats") },
                             onMembership = { navController.navigate("membership") },
@@ -613,8 +683,10 @@ class MainActivity : ComponentActivity() {
                                     ).show()
                                     if (result.isSuccess) {
                                         selectedServer = repository.currentServer
-                                        reloadCommandCapabilities()
-                                        sessionStore.load()?.let { sessionStore.save(it.copy(server = server)) }
+                                        reloadCommandCapabilities(force = true)
+                                        runCatching { sessionStore.load() }.getOrNull()?.let {
+                                            saveSessionSafely(it.copy(server = server))
+                                        }
                                         val previousImei = currentImei
                                         devices = emptyList()
                                         currentImei = ""
@@ -643,10 +715,10 @@ class MainActivity : ComponentActivity() {
                                     val targetImei = repository.loginType != 2
                                     val result = repository.switchLoginType(targetImei)
                                     if (result.getOrDefault(false)) {
-                                        reloadCommandCapabilities()
+                                        reloadCommandCapabilities(force = true)
                                         if (oldUser != null) AlarmPollingWorker.cancel(this@MainActivity, oldUser)
-                                        val saved = sessionStore.load()
-                                        if (saved != null) sessionStore.save(saved.copy(isImei = targetImei))
+                                        val saved = runCatching { sessionStore.load() }.getOrNull()
+                                        if (saved != null) saveSessionSafely(saved.copy(isImei = targetImei))
                                         val available = if (targetImei) listOfNotNull(saved?.let {
                                             DeviceSummary(it.account, it.account)
                                         }) else repository.getDevices().getOrNull().orEmpty()
@@ -675,7 +747,9 @@ class MainActivity : ComponentActivity() {
                                         Toast.LENGTH_LONG
                                     ).show()
                                     if (result.getOrDefault(false)) {
-                                        sessionStore.load()?.let { sessionStore.save(it.copy(password = newPassword)) }
+                                        runCatching { sessionStore.load() }.getOrNull()?.let {
+                                            saveSessionSafely(it.copy(password = newPassword))
+                                        }
                                     }
                                 }
                             },
@@ -686,6 +760,8 @@ class MainActivity : ComponentActivity() {
                                 selectedServer = repository.currentServer
                                 sessionStore.clear()
                                 loadGeneration++
+                                isRefreshing = false
+                                modelCapabilities = emptyList()
                                 devices = emptyList()
                                 currentImei = ""
                                 positionState = null
@@ -756,14 +832,21 @@ class MainActivity : ComponentActivity() {
                             isLoading = isRefreshing,
                             canRestart = canSendMapCommand("CDeviceRestart"),
                             canEmergencyLocate = canSendMapCommand("EmergencyLocate"),
+                            mapSource = settings.mapSource,
+                            satellite = settings.mapSatellite,
+                            traffic = settings.mapTraffic,
+                            fences = fencesState,
+                            onSelectMapSource = onSelectMapSource,
+                            onToggleSatellite = onToggleMapSatellite,
+                            onToggleTraffic = onToggleMapTraffic,
                             onBack = {
-                                if (!navController.popBackStack()) navController.navigate("dashboard")
+                                if (!navController.popBackStack()) navigateMainTab("dashboard")
                             },
                             onReturnToDevice = {
                                 mapFocusPoint = null; selectedPlace = null; mapPlaces = emptyList()
                             },
-                            onFeatures = { navController.navigate("dashboard") { launchSingleTop = true } },
-                            onAccount = { loadAccountUsers(); navController.navigate("account") { launchSingleTop = true } },
+                            onFeatures = { navigateMainTab("dashboard") },
+                            onAccount = { loadAccountUsers(); navigateMainTab("account") },
                             onToggleAllDevices = { showAllDevices = !showAllDevices },
                             onSelectDevice = { teid ->
                                 devices.firstOrNull { it.teid == teid }?.let { device ->
@@ -772,6 +855,8 @@ class MainActivity : ComponentActivity() {
                                     selectedPlace = null
                                     positionState = null
                                     detailState = null
+                                    fencesState = emptyList()
+                                    fencesFailed = false
                                     addressText = ""
                                     loadDeviceData(device.teid)
                                 }
@@ -787,13 +872,13 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onSelectPlace = { place ->
-                                mapFocusPoint = place.point
+                                mapFocusPoint = place.wgsPoint
                                 selectedPlace = place
                                 mapPlaces = emptyList()
                             },
                             onSavePlace = { place ->
                                 scope.launch {
-                                    val result = repository.savePlace(place.point, place.name)
+                                    val result = repository.savePlace(place.wgsPoint, place.name)
                                     Toast.makeText(
                                         this@MainActivity,
                                         if (result.getOrDefault(false)) language.text("PlaceSaved", "地点已收藏") else result.exceptionOrNull()?.message ?: language.text("PlaceSaveFailed", "收藏失败"),
@@ -808,6 +893,13 @@ class MainActivity : ComponentActivity() {
                         TrackReplayScreen(
                             teid = currentImei,
                             repository = repository,
+                            mapSource = settings.mapSource,
+                            satellite = settings.mapSatellite,
+                            traffic = settings.mapTraffic,
+                            fallbackCenter = positionState?.toValidWgsPoint(),
+                            onSelectMapSource = onSelectMapSource,
+                            onToggleSatellite = onToggleMapSatellite,
+                            onToggleTraffic = onToggleMapTraffic,
                             onBack = { navController.popBackStack() }
                         )
                     }
@@ -856,14 +948,32 @@ class MainActivity : ComponentActivity() {
 
                     composable("area") {
                         AreaMeasureScreen(
-                            currentImei, positionState?.gcjLatLng, repository,
+                            teid = currentImei,
+                            center = positionState?.toValidWgsPoint(),
+                            repository = repository,
+                            mapSource = settings.mapSource,
+                            satellite = settings.mapSatellite,
+                            traffic = settings.mapTraffic,
+                            onSelectMapSource = onSelectMapSource,
+                            onToggleSatellite = onToggleMapSatellite,
+                            onToggleTraffic = onToggleMapTraffic,
                             onBack = { navController.popBackStack() }
                         )
                     }
 
                     composable("indoor_offset") {
-                        IndoorOffsetScreen(currentImei, positionState, repository,
-                            onBack = { navController.popBackStack() })
+                        IndoorOffsetScreen(
+                            teid = currentImei,
+                            position = positionState,
+                            repository = repository,
+                            mapSource = settings.mapSource,
+                            satellite = settings.mapSatellite,
+                            traffic = settings.mapTraffic,
+                            onSelectMapSource = onSelectMapSource,
+                            onToggleSatellite = onToggleMapSatellite,
+                            onToggleTraffic = onToggleMapTraffic,
+                            onBack = { navController.popBackStack() }
+                        )
                     }
 
                     composable("devices") {
@@ -937,11 +1047,14 @@ class MainActivity : ComponentActivity() {
                             onSelect = { device ->
                                 currentImei = device.teid
                                 mapFocusPoint = null
+                                selectedPlace = null
                                 positionState = null
                                 detailState = null
+                                fencesState = emptyList()
+                                fencesFailed = false
                                 addressText = ""
                                 loadDeviceData(device.teid)
-                                navController.navigate("tracking")
+                                navigateMainTab("tracking")
                             }
                         )
                     }
@@ -1037,47 +1150,52 @@ class MainActivity : ComponentActivity() {
                         onDismissRequest = { showFences = false },
                         title = { Text(language.text("Geofence", "电子围栏")) },
                         text = {
-                            Column {
+                            Column(Modifier.verticalScroll(rememberScrollState())) {
                                 if (fencesFailed) Text(language.text("FenceQueryFailed", "围栏查询失败，请刷新后重试"))
                                 else if (fencesState.isEmpty()) Text(language.text("FenceNotSet", "当前设备没有查询到电子围栏"))
-                                fencesState.forEach { fence ->
-                                    Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth()) {
+                                fencesState.forEachIndexed { index, fence ->
+                                    if (index > 0) HorizontalDivider()
+                                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                         Text(
                                             text = "${fence.name.ifBlank { fence.id }} · ${when (fence.state) {
                                                 1 -> language.text("FenceEnterAlarm", "进入报警")
                                                 2 -> language.text("FenceLeaveAlarm", "离开报警")
                                                 else -> language.text("FenceEnterLeaveAlarm", "进入/离开报警")
                                             }}",
-                                            modifier = androidx.compose.ui.Modifier.weight(1f).padding(vertical = 8.dp)
+                                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
                                         )
-                                        TextButton(onClick = {
-                                            editingFence = fence
-                                            fenceName = fence.name
-                                            fenceType = fence.type
-                                            fenceAlarmType = fence.alarmType
-                                            fenceRadius = fence.distanceMeters.toString()
-                                            fenceVertices = fence.geometry.split(';').mapNotNull { pair ->
-                                                val coordinate = pair.split(',').mapNotNull { it.trim().toDoubleOrNull() }
-                                                if (coordinate.size != 2) null else CoordinateTransform.wgs84ToGcj02(coordinate[1], coordinate[0])
-                                            }
-                                            selectedFencePoint = fenceVertices.firstOrNull()
-                                            fenceCenter = selectedFencePoint?.let { "${it.longitude},${it.latitude}" }.orEmpty()
-                                            showFenceEditor = true
-                                        }) { Text(language.text("Edit", "编辑")) }
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                val result = repository.unbindFenceFromDevice(currentImei, fence.name, fence.alarmType)
-                                                if (result.getOrDefault(false)) loadDeviceData(currentImei)
-                                                else Toast.makeText(this@MainActivity, result.exceptionOrNull()?.message ?: language.text("UnbindFailed", "解绑失败"), Toast.LENGTH_LONG).show()
-                                            }
-                                        }) { Text(language.text("Unbind", "解绑")) }
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                val result = repository.deleteUserFence(currentImei, fence.name, fence.alarmType)
-                                                if (result.getOrDefault(false)) loadDeviceData(currentImei)
-                                                else Toast.makeText(this@MainActivity, result.exceptionOrNull()?.message ?: language.text("DeleteFailed", "删除失败"), Toast.LENGTH_LONG).show()
-                                            }
-                                        }) { Text(language.text("Del", "删除")) }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            TextButton(onClick = {
+                                                editingFence = fence
+                                                fenceName = fence.name
+                                                fenceType = fence.type
+                                                fenceAlarmType = fence.alarmType
+                                                fenceRadius = fence.distanceMeters.toString()
+                                                fenceVertices = parseWgsGeometry(fence.geometry)
+                                                selectedFencePoint = fenceVertices.firstOrNull()
+                                                fenceCenter = selectedFencePoint?.let {
+                                                    String.format(java.util.Locale.US, "%.6f,%.6f", it.longitude, it.latitude)
+                                                }.orEmpty()
+                                                showFenceEditor = true
+                                            }) { Text(language.text("Edit", "编辑")) }
+                                            TextButton(onClick = {
+                                                scope.launch {
+                                                    val result = repository.unbindFenceFromDevice(currentImei, fence.name, fence.alarmType)
+                                                    if (result.getOrDefault(false)) loadDeviceData(currentImei)
+                                                    else Toast.makeText(this@MainActivity, result.exceptionOrNull()?.message ?: language.text("UnbindFailed", "解绑失败"), Toast.LENGTH_LONG).show()
+                                                }
+                                            }) { Text(language.text("Unbind", "解绑")) }
+                                            TextButton(onClick = {
+                                                scope.launch {
+                                                    val result = repository.deleteUserFence(currentImei, fence.name, fence.alarmType)
+                                                    if (result.getOrDefault(false)) loadDeviceData(currentImei)
+                                                    else Toast.makeText(this@MainActivity, result.exceptionOrNull()?.message ?: language.text("DeleteFailed", "删除失败"), Toast.LENGTH_LONG).show()
+                                                }
+                                            }) { Text(language.text("Del", "删除")) }
+                                        }
                                     }
                                 }
                                 TextButton(onClick = {
@@ -1087,8 +1205,10 @@ class MainActivity : ComponentActivity() {
                                     fenceRadius = "200"
                                     fenceVertices = emptyList()
                                     fenceName = ""
-                                    selectedFencePoint = positionState?.gcjLatLng
-                                    fenceCenter = selectedFencePoint?.let { "${it.longitude},${it.latitude}" }.orEmpty()
+                                    selectedFencePoint = positionState?.toValidWgsPoint()
+                                    fenceCenter = selectedFencePoint?.let {
+                                        String.format(java.util.Locale.US, "%.6f,%.6f", it.longitude, it.latitude)
+                                    }.orEmpty()
                                     showFenceEditor = true
                                 }) { Text(language.text("NewCircleFence", "新建圆形围栏")) }
                                 TextButton(onClick = {
@@ -1098,7 +1218,7 @@ class MainActivity : ComponentActivity() {
                                     fenceRadius = "200"
                                     fenceVertices = emptyList()
                                     fenceName = ""
-                                    selectedFencePoint = positionState?.gcjLatLng
+                                    selectedFencePoint = positionState?.toValidWgsPoint()
                                     showFenceEditor = true
                                 }) { Text(language.text("NewPolygonFence", "新建多边形围栏")) }
                             }
@@ -1123,7 +1243,15 @@ class MainActivity : ComponentActivity() {
                                             type = "text/plain"
                                             putExtra(Intent.EXTRA_TEXT, repository.sharePositionUrl(currentImei))
                                         }
-                                        startActivity(Intent.createChooser(intent, language.text("ShareDevicePosition", "分享设备位置")))
+                                        runCatching {
+                                            startActivity(Intent.createChooser(intent, language.text("ShareDevicePosition", "分享设备位置")))
+                                        }.onFailure {
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                it.message ?: language.text("OperationFailed", "操作失败"),
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
                                     }) { Text(language.text("ShareLink", "分享链接")) }
                                 }
                             }
@@ -1180,6 +1308,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 if (showFenceEditor) {
+                    var showFenceLayerDialog by remember { mutableStateOf(false) }
                     AlertDialog(
                         onDismissRequest = { showFenceEditor = false },
                         title = { Text("${if (editingFence == null) language.text("New", "新建") else language.text("Edit", "编辑")}${if (fenceType == 1) language.text("Circle", "圆形") else language.text("Polygon", "多边形")}${language.text("Fence", "围栏")}") },
@@ -1189,20 +1318,37 @@ class MainActivity : ComponentActivity() {
                                     value = fenceName,
                                     onValueChange = { fenceName = it },
                                     label = { Text(language.text("FenceName", "围栏名称")) },
-                                    singleLine = true
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                com.scluzlep.newmangps.ui.screens.map.AmapJsMap(
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = language.text(settings.mapSource.labelKey, settings.mapSource.fallbackLabel),
+                                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                                    )
+                                    TextButton(onClick = { showFenceLayerDialog = true }) {
+                                        Text(language.text("SwitchMapSource", "切换地图源"))
+                                    }
+                                }
+                                AmapJsMap(
                                     points = listOfNotNull(if (fenceType == 3) fenceVertices.firstOrNull() ?: selectedFencePoint else selectedFencePoint),
                                     markerIndex = 0,
+                                    mapSource = settings.mapSource,
+                                    satellite = settings.mapSatellite,
+                                    traffic = settings.mapTraffic,
                                     onMapTap = { point ->
                                         if (fenceType == 1) {
                                             selectedFencePoint = point
-                                            fenceCenter = "${point.longitude},${point.latitude}"
+                                            fenceCenter = String.format(java.util.Locale.US, "%.6f,%.6f", point.longitude, point.latitude)
                                         } else fenceVertices = fenceVertices + point
                                     },
                                     circleRadiusMeters = if (fenceType == 1) fenceRadius.toIntOrNull() ?: 200 else 0,
                                     polygonPoints = if (fenceType == 3) fenceVertices else emptyList(),
-                                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(220.dp)
+                                    modifier = Modifier.fillMaxWidth().height(260.dp)
                                 )
                                 if (fenceType == 1) Text("${language.text("TapMapForCenter", "点击地图设置圆心")}：${fenceCenter.ifBlank { language.text("NotSelected", "未选择") }}")
                                 else {
@@ -1211,12 +1357,15 @@ class MainActivity : ComponentActivity() {
                                         Text(language.text("UndoVertex", "撤销顶点"))
                                     }
                                 }
-                                OutlinedTextField(
-                                    value = fenceRadius,
-                                    onValueChange = { fenceRadius = it.filter(Char::isDigit) },
-                                    label = { Text(language.text("RadiusMetres", "半径（米）")) },
-                                    singleLine = true
-                                )
+                                if (fenceType != 3) {
+                                    OutlinedTextField(
+                                        value = fenceRadius,
+                                        onValueChange = { fenceRadius = it.filter(Char::isDigit) },
+                                        label = { Text(language.text("RadiusMetres", "半径（米）")) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                                 Row {
                                     listOf(1 to language.text("Enter", "进入"), 2 to language.text("Leave", "离开"), 3 to language.text("EnterAndLeave", "进入和离开")).forEach { (value, label) ->
                                         TextButton(onClick = { fenceAlarmType = value }) {
@@ -1234,10 +1383,7 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     scope.launch {
                                         val radius = (fenceRadius.toIntOrNull() ?: 200).coerceIn(100, 2000)
-                                        val geometry = vertices.joinToString(";") { vertex ->
-                                            val point = CoordinateTransform.gcj02ToWgs84(vertex.latitude, vertex.longitude)
-                                            String.format(java.util.Locale.US, "%.7f,%.7f", point.longitude, point.latitude)
-                                        }
+                                        val geometry = formatWgsGeometry(vertices)
                                         val result = repository.saveUserFence(
                                             currentImei, fenceName, fenceType, radius, geometry, 0,
                                             fenceAlarmType, editingFence?.info.orEmpty(), editing = editingFence != null
@@ -1251,6 +1397,7 @@ class MainActivity : ComponentActivity() {
                                             showFences = false
                                             fenceName = ""
                                             fenceCenter = ""
+                                            fenceVertices = emptyList()
                                             selectedFencePoint = null
                                             loadDeviceData(currentImei)
                                         } else {
@@ -1264,6 +1411,17 @@ class MainActivity : ComponentActivity() {
                             TextButton(onClick = { showFenceEditor = false }) { Text(language.text("Cancel", "取消")) }
                         }
                     )
+                    if (showFenceLayerDialog) {
+                        MapLayerDialog(
+                            currentSource = settings.mapSource,
+                            satellite = settings.mapSatellite,
+                            traffic = settings.mapTraffic,
+                            onSelectSource = onSelectMapSource,
+                            onToggleSatellite = onToggleMapSatellite,
+                            onToggleTraffic = onToggleMapTraffic,
+                            onDismiss = { showFenceLayerDialog = false }
+                        )
+                    }
                 }
                 pendingCommand?.let { command ->
                     AlertDialog(
@@ -1331,4 +1489,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+private fun DevicePosition.toValidWgsPoint(): CoordinateTransform.LatLng? =
+    takeIf { rawLat in -85.0..85.0 && rawLon in -180.0..180.0 && (rawLat != 0.0 || rawLon != 0.0) }
+        ?.let { CoordinateTransform.LatLng(it.rawLat, it.rawLon) }
 

@@ -1,7 +1,10 @@
 package com.scluzlep.newmangps.ui.screens.account
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,7 +61,7 @@ import com.scluzlep.newmangps.ui.WEB_LANGUAGE_CODES
 import com.scluzlep.newmangps.ui.LocalAppLanguage
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AccountManagementScreen(
     users: List<SubUserInfo>,
@@ -165,7 +168,7 @@ fun AccountManagementScreen(
         Column(
             Modifier.fillMaxSize().padding(insets).padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { showPassword = true }) {
                     Icon(Icons.Default.LockReset, contentDescription = null)
                     Text(tr("修改密码"), Modifier.padding(start = 6.dp))
@@ -178,7 +181,7 @@ fun AccountManagementScreen(
             TextButton(onClick = { serverMenu = true }) {
                 Text("${language.text("Server", "服务器")}：${servers.firstOrNull { it.first == currentServer }?.second ?: currentServer}")
             }
-            Row {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (loginType != 2) {
                     TextButton(onClick = { showProfile = true }) { Text(tr("个人资料")) }
                     TextButton(onClick = onStats) { Text(tr("账户统计")) }
@@ -211,50 +214,48 @@ fun AccountManagementScreen(
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(users, key = SubUserInfo::username) { user ->
                         var deviceMenu by remember(user.username) { mutableStateOf(false) }
-                        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(user.displayName.ifBlank { user.username }, style = MaterialTheme.typography.titleMedium)
-                                    Text(user.username, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (user.phone.isNotBlank()) Text(user.phone, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Row {
-                                    IconButton(onClick = { editTarget = user }) {
-                                        Icon(Icons.Default.Edit, contentDescription = language.text("EditSubUser", "编辑子账号"))
-                                    }
-                                    IconButton(onClick = { onManagePrivileges(user.username) }) {
-                                        Icon(Icons.Default.AdminPanelSettings, contentDescription = language.text("SubUserPrivileges", "子账号权限"))
-                                    }
-                                    TextButton(onClick = { assignUserTarget = user.username }) { Text(tr("分配用户")) }
-                                    IconButton(onClick = { deleteTarget = user.username }) {
-                                        Icon(Icons.Default.Delete, contentDescription = tr("删除子账号"))
-                                    }
-                                }
+                        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(user.displayName.ifBlank { user.username }, style = MaterialTheme.typography.titleMedium)
+                                Text(user.username, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (user.phone.isNotBlank()) Text(user.phone, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (devices.isNotEmpty()) {
-                                Row {
-                                    TextButton(onClick = { deviceMenu = true }) {
-                                        Icon(Icons.Default.Devices, contentDescription = null)
-                                        Text(tr("分配设备"), Modifier.padding(start = 6.dp))
-                                    }
-                                    DropdownMenu(expanded = deviceMenu, onDismissRequest = { deviceMenu = false }) {
-                                        devices.forEach { device ->
-                                            DropdownMenuItem(
-                                                text = { Text("${language.text("Assign", "分配")} · ${device.name}") },
-                                                onClick = {
-                                                    deviceMenu = false
-                                                    onAssignDevice(user.username, device.teid, true)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("${language.text("CancelAssignment", "取消分配")} · ${device.name}") },
-                                                onClick = {
-                                                    deviceMenu = false
-                                                    onAssignDevice(user.username, device.teid, false)
-                                                }
-                                            )
+                            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(onClick = { editTarget = user }) {
+                                    Icon(Icons.Default.Edit, contentDescription = language.text("EditSubUser", "编辑子账号"))
+                                }
+                                IconButton(onClick = { onManagePrivileges(user.username) }) {
+                                    Icon(Icons.Default.AdminPanelSettings, contentDescription = language.text("SubUserPrivileges", "子账号权限"))
+                                }
+                                TextButton(onClick = { assignUserTarget = user.username }) { Text(tr("分配用户")) }
+                                if (devices.isNotEmpty()) {
+                                    Box {
+                                        TextButton(onClick = { deviceMenu = true }) {
+                                            Icon(Icons.Default.Devices, contentDescription = null)
+                                            Text(tr("分配设备"), Modifier.padding(start = 6.dp))
+                                        }
+                                        DropdownMenu(expanded = deviceMenu, onDismissRequest = { deviceMenu = false }) {
+                                            devices.forEach { device ->
+                                                DropdownMenuItem(
+                                                    text = { Text("${language.text("Assign", "分配")} · ${device.name}") },
+                                                    onClick = {
+                                                        deviceMenu = false
+                                                        onAssignDevice(user.username, device.teid, true)
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("${language.text("CancelAssignment", "取消分配")} · ${device.name}") },
+                                                    onClick = {
+                                                        deviceMenu = false
+                                                        onAssignDevice(user.username, device.teid, false)
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
+                                }
+                                IconButton(onClick = { deleteTarget = user.username }) {
+                                    Icon(Icons.Default.Delete, contentDescription = tr("删除子账号"))
                                 }
                             }
                         }

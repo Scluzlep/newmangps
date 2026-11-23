@@ -5,7 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.webkit.WebView
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -31,10 +33,19 @@ import com.scluzlep.newmangps.ui.LocalAppLanguage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
+
+private val thumbnailClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,9 +93,19 @@ fun DeviceMediaScreen(teid: String, repository: NewsmyRepository, onBack: () -> 
         }
     }
 
+    fun releasePlayer() {
+        player?.runCatching { release() }
+        player = null
+        playingTime = 0
+    }
+
     LaunchedEffect(teid, tab, allPhotos) { refresh() }
-    DisposableEffect(Unit) {
-        onDispose { currentPlayer?.release() }
+    DisposableEffect(teid) {
+        onDispose {
+            currentPlayer?.runCatching { release() }
+            player = null
+            playingTime = 0
+        }
     }
 
     Scaffold(topBar = {
@@ -113,12 +134,17 @@ fun DeviceMediaScreen(teid: String, repository: NewsmyRepository, onBack: () -> 
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
             commandMessage?.let { Text(it, modifier = Modifier.padding(horizontal = 16.dp)) }
             if (tab == 0) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     FilterChip(selected = !allPhotos, onClick = { allPhotos = false }, label = { Text(language.text("RecentPhotos", "最近照片")) })
-                    Spacer(Modifier.width(8.dp))
                     FilterChip(selected = allPhotos, onClick = { allPhotos = true }, label = { Text(language.text("Last30Days", "近30天")) })
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     (1..4).forEach { camera ->
                         TextButton(onClick = { sendMediaCommand("TakePhoto", "$camera&1&60&1") }) {
                             Text("${language.text("TakePhoto", "拍照")}$camera")
@@ -150,7 +176,10 @@ fun DeviceMediaScreen(teid: String, repository: NewsmyRepository, onBack: () -> 
                         }
                     }) { Text(language.text("ClearRecordings", "清空录音")) }
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     listOf(10, 20, 30, 60, 120).forEach { seconds ->
                         TextButton(onClick = { sendMediaCommand("RecordBack", seconds.toString()) }) {
                             Text("$seconds${language.text("Second", "秒")}")
@@ -165,17 +194,38 @@ fun DeviceMediaScreen(teid: String, repository: NewsmyRepository, onBack: () -> 
                             trailingContent = {
                                 Row {
                                     IconButton(onClick = {
-                                        player?.release()
+                                        releasePlayer()
                                         playingTime = recording.timeSeconds
                                         val next = MediaPlayer()
                                         player = next
-                                        next.setOnPreparedListener { it.start() }
-                                        next.setOnCompletionListener { playingTime = 0 }
-                                        next.setOnErrorListener { _, _, _ -> playingTime = 0; true }
+                                        next.setOnPreparedListener { mp ->
+                                            if (player === mp) mp.start() else mp.runCatching { release() }
+                                        }
+                                        next.setOnCompletionListener { mp ->
+                                            mp.runCatching { release() }
+                                            if (player === mp) {
+                                                player = null
+                                                playingTime = 0
+                                            }
+                                        }
+                                        next.setOnErrorListener { mp, _, _ ->
+                                            mp.runCatching { release() }
+                                            if (player === mp) {
+                                                player = null
+                                                playingTime = 0
+                                            }
+                                            true
+                                        }
                                         runCatching {
                                             next.setDataSource(recording.url)
                                             next.prepareAsync()
-                                        }.onFailure { playingTime = 0 }
+                                        }.onFailure {
+                                            next.runCatching { release() }
+                                            if (player === next) {
+                                                player = null
+                                                playingTime = 0
+                                            }
+                                        }
                                         if (recording.isNew) scope.launch {
                                             if (repository.setRecordingState(teid, recording.timeSeconds).getOrDefault(false)) {
                                                 recordings = recordings.map { if (it == recording) it.copy(isNew = false) else it }
@@ -208,6 +258,10 @@ fun DeviceMediaScreen(teid: String, repository: NewsmyRepository, onBack: () -> 
                 AndroidView(
                     factory = { context -> WebView(context).apply { settings.builtInZoomControls = true; settings.displayZoomControls = false; loadUrl(photo.url) } },
                     update = { if (it.url != photo.url) it.loadUrl(photo.url) },
+                    onRelease = {
+                        it.stopLoading()
+                        it.destroy()
+                    },
                     modifier = Modifier.fillMaxWidth().height(360.dp)
                 )
             },
@@ -224,7 +278,7 @@ private fun photoType(type: Int, language: AppLanguage): String = when (type) {
 }
 
 private fun formatTime(seconds: Long): String =
-    if (seconds <= 0) "--" else SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(seconds * 1000))
+    if (seconds <= 0) "--" else SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(seconds * 1000))
 
 @Composable
 private fun PhotoThumbnail(url: String, modifier: Modifier = Modifier) {
@@ -232,8 +286,12 @@ private fun PhotoThumbnail(url: String, modifier: Modifier = Modifier) {
     val bitmap by produceState<Bitmap?>(null, url) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                URL(url).openStream().use { stream ->
-                    BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 4 })
+                val request = Request.Builder().url(url).get().build()
+                thumbnailClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    response.body?.byteStream()?.use { stream ->
+                        BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 4 })
+                    }
                 }
             }.getOrNull()
         }

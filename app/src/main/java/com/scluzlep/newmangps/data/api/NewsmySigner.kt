@@ -11,7 +11,7 @@ import kotlin.random.Random
  */
 object NewsmySigner {
     const val DEFAULT_SERVER = "https://server.newsmy-nmgps.com"
-    const val CLUSTER_SERVER = "http://www.appxmg.com"
+    const val CLUSTER_SERVER = "https://www.appxmg.com"
     const val API_ENDPOINT = "/APP/AppJson.asp"
 
     // Protocol Delimiters (ASCII Control Characters)

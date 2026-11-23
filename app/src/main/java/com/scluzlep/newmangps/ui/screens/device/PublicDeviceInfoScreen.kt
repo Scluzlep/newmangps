@@ -31,12 +31,15 @@ fun PublicDeviceInfoScreen(
         TopAppBar(title = { Text(language.text("PublicDeviceInfo", "找设备公开信息")) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.text("Back", "返回")) } })
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+        Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("${language.text("Device", "设备")} ${detail?.teid ?: "--"}")
             if (detail?.isExpired == true) Text(language.text("DeviceServiceExpired", "设备服务已到期"), color = MaterialTheme.colorScheme.error)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(language.text("ShowPublicDeviceInfo", "展示公开信息"))
+                Text(
+                    language.text("ShowPublicDeviceInfo", "展示公开信息"),
+                    modifier = Modifier.weight(1f).padding(end = 12.dp)
+                )
                 Switch(value.visible, onCheckedChange = { value = value.copy(visible = it) }, enabled = enabled)
             }
             if (value.visible) {

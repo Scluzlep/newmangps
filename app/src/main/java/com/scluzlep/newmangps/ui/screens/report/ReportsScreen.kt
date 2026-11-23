@@ -94,96 +94,111 @@ fun ReportsScreen(teid: String, detail: DeviceDetail?, repository: NewsmyReposit
             actions = { IconButton(onClick = { refresh() }, enabled = !loading) { Icon(Icons.Default.Refresh, language.text("Refresh", "刷新")) } }
         )
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            ScrollableTabRow(selectedTabIndex = reportKinds.indexOfFirst { it.first == kind }) {
-                reportKinds.forEach { (value, label) ->
-                    Tab(selected = kind == value, onClick = { kind = value },
-                        text = { Text(reportKeys[value]?.let { language.text(it, label) } ?: label) })
-                }
-            }
-            if (kind == "temperature") {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    (0..4).forEach { channel ->
-                        FilterChip(selected = temperatureChannel == channel,
-                            onClick = { temperatureChannel = channel },
-                            label = { Text(if (channel == 0) "主温度" else "TEMP$channel") })
+        val count = when (kind) {
+            "run" -> runs.size
+            "park" -> parks.size
+            else -> samples.size
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item(key = "header") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ScrollableTabRow(selectedTabIndex = reportKinds.indexOfFirst { it.first == kind }) {
+                        reportKinds.forEach { (value, label) ->
+                            Tab(selected = kind == value, onClick = { kind = value },
+                                text = { Text(reportKeys[value]?.let { language.text(it, label) } ?: label) })
+                        }
                     }
+                    if (kind == "temperature") {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            (0..4).forEach { channel ->
+                                FilterChip(selected = temperatureChannel == channel,
+                                    onClick = { temperatureChannel = channel },
+                                    label = { Text(if (channel == 0) "主温度" else "TEMP$channel") })
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(1, 7, 30).forEach { days ->
+                            val begin = today.minusDays(days.toLong() - 1).toString()
+                            FilterChip(
+                                selected = startDate == begin && endDate == today.toString(),
+                                onClick = { startDate = begin; endDate = today.toString(); refresh() },
+                                label = { Text(if (days == 1) language.text("Today", "今天") else "近${days}天") }
+                            )
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(startDate, { startDate = it }, label = { Text(language.text("StartDate", "开始日期")) },
+                            singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(endDate, { endDate = it }, label = { Text(language.text("EndDate", "结束日期")) },
+                            singleLine = true, modifier = Modifier.weight(1f))
+                    }
+                    Button(onClick = { refresh() }, enabled = !loading, modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Text(language.text("Search", "查询"))
+                    }
+                    if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
                 }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(1, 7, 30).forEach { days ->
-                    val begin = today.minusDays(days.toLong() - 1).toString()
-                    FilterChip(
-                        selected = startDate == begin && endDate == today.toString(),
-                        onClick = { startDate = begin; endDate = today.toString(); refresh() },
-                        label = { Text(if (days == 1) language.text("Today", "今天") else "近${days}天") }
-                    )
-                }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(startDate, { startDate = it }, label = { Text(language.text("StartDate", "开始日期")) },
-                    singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(endDate, { endDate = it }, label = { Text(language.text("EndDate", "结束日期")) },
-                    singleLine = true, modifier = Modifier.weight(1f))
-            }
-            Button(onClick = { refresh() }, enabled = !loading, modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text(language.text("Search", "查询"))
-            }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
-            val count = when (kind) {
-                "run" -> runs.size
-                "park" -> parks.size
-                else -> samples.size
             }
             if (count > 0) {
-                Text(
-                    text = when (kind) {
-                        "run" -> "${language.text("Travel", "行驶")} ${runs.size} · ${"%.1f".format(runs.sumOf { it.distanceKm })} km"
-                        "park" -> "${language.text("Park", "停车")} ${parks.size} · ${parks.sumOf { it.durationSeconds } / 60} ${language.text("Minute", "分钟")}"
-                        "mileage" -> "${samples.size} 天里程记录"
-                        "fuel" -> "${language.text("Fuel", "油量")} ${values.size} · ${fuelReading(samples.first(), detail)?.second ?: "原始读数"}"
-                        else -> if (values.isEmpty()) "暂无有效温度读数" else
-                            "${language.text("Temperature", "温度")} ${values.size} · ${"%.1f".format(values.min())} - ${"%.1f".format(values.max())} °C"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
+                item(key = "summary") {
+                    Text(
+                        text = when (kind) {
+                            "run" -> "${language.text("Travel", "行驶")} ${runs.size} · ${"%.1f".format(Locale.US, runs.sumOf { it.distanceKm })} km"
+                            "park" -> "${language.text("Park", "停车")} ${parks.size} · ${parks.sumOf { it.durationSeconds } / 60} ${language.text("Minute", "分钟")}"
+                            "mileage" -> "${samples.size} 天里程记录"
+                            "fuel" -> "${language.text("Fuel", "油量")} ${values.size} · ${fuelReading(samples.first(), detail)?.second ?: "原始读数"}"
+                            else -> if (values.isEmpty()) "暂无有效温度读数" else
+                                "${language.text("Temperature", "温度")} ${values.size} · ${"%.1f".format(Locale.US, values.min())} - ${"%.1f".format(Locale.US, values.max())} °C"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
                 if (values.isNotEmpty()) {
-                    if (kind == "mileage") ReportBarChart(values, Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 16.dp))
-                    else ReportLineChart(values, Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 16.dp))
+                    item(key = "chart") {
+                        if (kind == "mileage") ReportBarChart(values, Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 16.dp))
+                        else ReportLineChart(values, Modifier.fillMaxWidth().height(160.dp).padding(horizontal = 16.dp))
+                    }
                 }
             }
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                when (kind) {
-                    "run" -> items(runs) { run ->
-                        ListItem(
-                            headlineContent = { Text("${formatReportTime(run.startSeconds)} - ${formatReportTime(run.endSeconds)}") },
-                            supportingContent = { Text("${run.durationSeconds / 60} ${language.text("Minute", "分钟")} · ${"%.1f".format(run.distanceKm)} km · ${language.text("AverageSpeed", "均速")} ${run.averageSpeed.toInt()} · ${language.text("MaxSpeed", "最高")} ${run.maximumSpeed.toInt()} ${language.text("KMH", "km/h")}") }
-                        )
-                        HorizontalDivider()
-                    }
-                    "park" -> items(parks) { park ->
-                        ListItem(
-                            headlineContent = { Text("${formatReportTime(park.startSeconds)} - ${formatReportTime(park.endSeconds)}") },
-                            supportingContent = { Text("${language.text("Park", "停车")} ${park.durationSeconds / 60} ${language.text("Minute", "分钟")} · ${"%.5f".format(park.latitude)}, ${"%.5f".format(park.longitude)}") }
-                        )
-                        HorizontalDivider()
-                    }
-                    else -> items(samples) { sample ->
-                        ListItem(
-                            headlineContent = { Text(formatReportTime(sample.timeSeconds)) },
-                            supportingContent = { Text(when (kind) {
-                                "mileage" -> "${"%.2f".format(sample.mileageKm)} km"
-                                "fuel" -> fuelReading(sample, detail)?.let { (value, unit) -> "${"%.1f".format(value)} $unit" } ?: "--"
-                                else -> temperatureReading(sample, detail, temperatureChannel)?.let { "${"%.1f".format(it)} °C" } ?: "--"
-                            }) }
-                        )
-                        HorizontalDivider()
-                    }
+            when (kind) {
+                "run" -> items(runs) { run ->
+                    ListItem(
+                        headlineContent = { Text("${formatReportTime(run.startSeconds)} - ${formatReportTime(run.endSeconds)}") },
+                        supportingContent = { Text("${run.durationSeconds / 60} ${language.text("Minute", "分钟")} · ${"%.1f".format(Locale.US, run.distanceKm)} km · ${language.text("AverageSpeed", "均速")} ${run.averageSpeed.toInt()} · ${language.text("MaxSpeed", "最高")} ${run.maximumSpeed.toInt()} ${language.text("KMH", "km/h")}") }
+                    )
+                    HorizontalDivider()
                 }
-                if (count == 0 && !loading && error == null) item { Text(language.text("NoReportDataInPeriod", "此时间段暂无报表数据")) }
+                "park" -> items(parks) { park ->
+                    ListItem(
+                        headlineContent = { Text("${formatReportTime(park.startSeconds)} - ${formatReportTime(park.endSeconds)}") },
+                        supportingContent = { Text("${language.text("Park", "停车")} ${park.durationSeconds / 60} ${language.text("Minute", "分钟")} · ${"%.5f".format(Locale.US, park.latitude)}, ${"%.5f".format(Locale.US, park.longitude)}") }
+                    )
+                    HorizontalDivider()
+                }
+                else -> items(samples) { sample ->
+                    ListItem(
+                        headlineContent = { Text(formatReportTime(sample.timeSeconds)) },
+                        supportingContent = { Text(when (kind) {
+                            "mileage" -> "${"%.2f".format(Locale.US, sample.mileageKm)} km"
+                            "fuel" -> fuelReading(sample, detail)?.let { (value, unit) -> "${"%.1f".format(Locale.US, value)} $unit" } ?: "--"
+                            else -> temperatureReading(sample, detail, temperatureChannel)?.let { "${"%.1f".format(Locale.US, it)} °C" } ?: "--"
+                        }) }
+                    )
+                    HorizontalDivider()
+                }
+            }
+            if (count == 0 && !loading && error == null) {
+                item(key = "empty") {
+                    Text(language.text("NoReportDataInPeriod", "此时间段暂无报表数据"), modifier = Modifier.padding(horizontal = 16.dp))
+                }
             }
         }
     }
@@ -223,4 +238,4 @@ private fun ReportBarChart(values: List<Double>, modifier: Modifier = Modifier) 
 }
 
 private fun formatReportTime(seconds: Long): String =
-    if (seconds <= 0) "--" else SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
+    if (seconds <= 0) "--" else SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(seconds * 1000))

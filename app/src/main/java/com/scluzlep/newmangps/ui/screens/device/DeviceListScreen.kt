@@ -1,6 +1,8 @@
 package com.scluzlep.newmangps.ui.screens.device
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -63,7 +65,10 @@ fun DeviceListScreen(
                 keyword, { keyword = it }, label = { Text(language.text("SearchDeviceNameOrId", "搜索设备名称或编号")) },
                 singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             )
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 listOf("All" to "全部", "Online" to "在线", "Offline" to "离线", "Alarm" to "报警").forEachIndexed { index, (key, label) ->
                     FilterChip(selected = filter == index, onClick = { filter = index }, label = { Text(language.text(key, label)) })
                 }

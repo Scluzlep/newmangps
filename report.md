@@ -48,6 +48,7 @@
 - **高德地图 Web API Key**：`80bf9152cacb58d9b65a6e909b3ad6da`
 - **高德地图安全密钥（SecurityJsCode）**：`f63b49d11b88fef2f9582ad386a3723c`
 - **高德 WebService API Key**：`0961c4287ea43ba57649b8a247bdf904`
+- **天地图 API Key**：`1d671b84c476a3e901f0da8bf3a5719b`
 - **语音电话服务器（VoIP Server）**：`https://app.newsmy-nmgps.com`
 - **指令服务端口（CmdServerPort）**：`90`
 
@@ -293,3 +294,4 @@ $$\Delta \text{lon} = \text{transformLon}(\text{lon} - 105.0, \text{lat} - 35.0)
 
 ### 9.2 总结
 本逆向工作彻底理清了纽曼 GPS 定位器完整的协议通信链路与硬件状态解码逻辑。通过将这些逆向成果直接落地在 `com.scluzlep.newmangps` 原生 Android 项目中，不仅彻底摆脱了官方客户端的臃肿、卡顿与弹窗困扰，更为定位器带来了流畅、可靠、现代化的原生硬件控制体验。
+

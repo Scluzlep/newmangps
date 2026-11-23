@@ -26,7 +26,7 @@ fun BulkImportScreen(repository: NewsmyRepository, onBack: () -> Unit, onImporte
         TopAppBar(title = { Text(language.text("BatchDeviceImport", "批量导入设备")) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.text("Back", "返回")) } })
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp),
+        Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(input, { input = it }, label = { Text(language.text("DeviceIdPerLine", "设备编号，每行一个")) },
                 modifier = Modifier.fillMaxWidth().weight(1f), enabled = !busy)

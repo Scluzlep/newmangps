@@ -88,7 +88,7 @@ fun ScheduleSettingsScreen(
         TopAppBar(title = { Text(language.text("ScheduleSettings", "定时设置")) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.text("Back", "返回")) } })
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             TabRow(selectedTabIndex = if (!allowAlarm) 0 else if (classMode) 1 else 0) {
                 if (allowAlarm) Tab(selected = !classMode, onClick = { classMode = false }, text = { Text(language.text("SetAlarmClock", "闹钟")) })
                 if (allowClass) Tab(selected = classMode, onClick = { classMode = true }, text = { Text(language.text("InClassDisable", "上课禁用")) })

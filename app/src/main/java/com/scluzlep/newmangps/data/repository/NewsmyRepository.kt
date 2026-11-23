@@ -22,10 +22,13 @@ import java.util.Date
 import java.util.Locale
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 data class AlarmPage(val alarms: List<AlarmItem>, val hasMore: Boolean)
 data class PhonebookEntry(val id: Int, val phone: String, val name: String)
@@ -134,14 +137,16 @@ class NewsmyRepository(
     )
 
     fun restoreServer(server: String) {
-        if (availableServers.any { it.first == server }) {
-            serverUrl = server
-            apiService.setServerUrl(server)
+        val normalized = normalizeServer(server)
+        if (availableServers.any { it.first == normalized }) {
+            serverUrl = normalized
+            apiService.setServerUrl(normalized)
         }
     }
 
     suspend fun switchServer(server: String): Result<Boolean> {
-        if (availableServers.none { it.first == server }) {
+        val normalized = normalizeServer(server)
+        if (availableServers.none { it.first == normalized }) {
             return Result.failure(IllegalArgumentException("不支持的服务器"))
         }
         val identity = _loginIdentity.value ?: return Result.failure(IllegalStateException("尚未登录"))
@@ -149,12 +154,12 @@ class NewsmyRepository(
         val previous = serverUrl
         val previousUser = _currentUser.value
         val previousType = _loginType.value
-        apiService.setServerUrl(server)
+        apiService.setServerUrl(normalized)
         return try {
             val login = if (previousType == 2) loginIMEI(identity, password) else loginUser(identity, password)
             val deviceCheck = if (login.isSuccess && previousType != 2) getDevices() else null
             if (login.isSuccess && (deviceCheck == null || deviceCheck.isSuccess)) {
-                serverUrl = server
+                serverUrl = normalized
                 Result.success(true)
             } else {
                 apiService.setServerUrl(previous)
@@ -591,10 +596,10 @@ class NewsmyRepository(
     suspend fun sendVoice(teid: String, durationSeconds: Int, mp3: ByteArray): Result<Boolean> = runCatching {
         require(durationSeconds in 1..60 && mp3.size > 1000) { "录音过短或超过 60 秒" }
         val uploaded = apiService.uploadVoice(teid, durationSeconds, mp3)
-        require(uploaded.get("success")?.asBoolean == true) { "语音上传失败" }
-        val time = uploaded.get("nTime")?.asLong ?: error("语音上传缺少时间")
-        val relative = uploaded.get("strRelativePath")?.asString ?: error("语音上传缺少文件路径")
-        val absolute = uploaded.get("strAbsolutePath")?.asString ?: error("语音上传缺少设备路径")
+        require(uploaded.booleanOrNull("success") == true) { "语音上传失败" }
+        val time = uploaded.longOrNull("nTime") ?: error("语音上传缺少时间")
+        val relative = uploaded.stringOrNull("strRelativePath") ?: error("语音上传缺少文件路径")
+        val absolute = uploaded.stringOrNull("strAbsolutePath") ?: error("语音上传缺少设备路径")
         val saved = apiService.executeRpc(
             currentUserFor(teid), "Proc_SaveSound",
             listOf(teid, time, 1, durationSeconds, 1, relative, absolute)
@@ -698,13 +703,14 @@ class NewsmyRepository(
         val user = _currentUser.value ?: error("尚未登录")
         require(price.currency == "CNY" && price.price > 0) { "当前币种尚不支持此支付渠道" }
         val now = System.currentTimeMillis() / 1000
-        val amount = (price.price - method.discount).coerceAtLeast(1.0)
-        val orderId = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) +
+        val amount = calculatePaymentAmount(price.price, method.discount)
+        val formattedAmount = formatPaymentAmount(amount)
+        val orderId = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.US)) +
             "_${(System.currentTimeMillis() % 1000).toString().padStart(3, '0')}_${price.buyType}_${price.buyValue}"
-        val detail = "设备:$teid, $title, ${price.buyValue}天, $amount CNY"
+        val detail = "设备:$teid, $title, ${price.buyValue}天, $formattedAmount CNY"
         val params = mapOf(
             "strPayTitle" to title, "strPayContent" to detail,
-            "nPayAmount" to amount.toString(), "strCurrency" to price.currency,
+            "nPayAmount" to formattedAmount, "strCurrency" to price.currency,
             "strTradeID" to orderId, "strProductID" to "${user}_${now}_${price.buyType}"
         ) + if (method.method == "wxpay") mapOf(
             "strWechatPayMchID" to method.merchantId,
@@ -736,7 +742,7 @@ class NewsmyRepository(
         }
         val params = mapOf(
             "isQuery" to "1", "strPayTitle" to pending.title,
-            "strPayContent" to pending.detail, "nPayAmount" to pending.amount.toString(),
+            "strPayContent" to pending.detail, "nPayAmount" to formatPaymentAmount(pending.amount),
             "strCurrency" to pending.currency, "strTradeID" to pending.orderId,
             "strProductID" to "${pending.user}_${pending.timeSeconds}_${pending.buyType}"
         ) + if (pending.method == "wxpay") mapOf(
@@ -749,11 +755,12 @@ class NewsmyRepository(
         if (pending.method == "wxpay") {
             parsePaymentXml(body)["err_code"].equals("ORDERPAID", true)
         } else {
-            val response = JsonParser.parseString(body).asJsonObject
-                .getAsJsonObject("alipay_trade_query_response")
-            response != null && response.get("code")?.asString == "10000" &&
-                response.get("out_trade_no")?.asString == pending.orderId &&
-                response.get("trade_status")?.asString in setOf("TRADE_SUCCESS", "TRADE_FINISHED")
+            val root = JsonParser.parseString(body).takeIf { it.isJsonObject }?.asJsonObject
+            val response = root?.get("alipay_trade_query_response")
+                ?.takeIf { it.isJsonObject }?.asJsonObject
+            response != null && response.stringOrNull("code") == "10000" &&
+                response.stringOrNull("out_trade_no") == pending.orderId &&
+                response.stringOrNull("trade_status") in setOf("TRADE_SUCCESS", "TRADE_FINISHED")
         }
     }
 
@@ -835,7 +842,7 @@ class NewsmyRepository(
     suspend fun getRadarUri(teid: String, deviceName: String): Result<Uri> = runCatching {
         require(deviceName.isNotBlank()) { "设备名称为空" }
         val config = apiService.getMiniAppConfig()
-        val appId = config.get("strMiniAppID")?.asString?.takeIf { it.isNotBlank() }
+        val appId = config.stringOrNull("strMiniAppID")
             ?: error("未获取到雷达小程序配置")
         val query = "strTEID=$teid&strDeviceName=${Uri.encode(deviceName)}&"
         Uri.parse("weixin://dl/business/?appid=${Uri.encode(appId)}&path=pages/Bluetooth/Bluetooth&query=${Uri.encode(query)}")
@@ -855,9 +862,9 @@ class NewsmyRepository(
         }
         require(serial.isNotBlank()) { "设备尚未返回通话序列号" }
         val config = apiService.getMiniAppConfig()
-        val appId = config.get("strMiniAppID")?.asString?.takeIf { it.isNotBlank() } ?: error("通话小程序不可用")
-        val appKey = config.get("strJuphoonAppKey")?.asString?.takeIf { it.isNotBlank() } ?: error("通话配置不完整")
-        val modelId = config.get("strMiniAppModelID")?.asString?.takeIf { it.isNotBlank() } ?: error("通话配置不完整")
+        val appId = config.stringOrNull("strMiniAppID") ?: error("通话小程序不可用")
+        val appKey = config.stringOrNull("strJuphoonAppKey") ?: error("通话配置不完整")
+        val modelId = config.stringOrNull("strMiniAppModelID") ?: error("通话配置不完整")
         val callId = "$teid" + "_" + SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date())
         val query = listOf(
             "strAppID=${Uri.encode(appId)}", "strAppKey=${Uri.encode(appKey)}", "strModeID=${Uri.encode(modelId)}", "strSN=${Uri.encode(serial)}",
@@ -1528,5 +1535,35 @@ class NewsmyRepository(
     private fun isActionSuccessful(response: ApiResponse): Boolean =
         response.toRows().firstOrNull()?.entries?.firstOrNull { it.key.equals("Result", true) }
             ?.value == "1"
+
+    private fun JsonObject.stringOrNull(key: String): String? =
+        get(key)?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() }
+
+    private fun JsonObject.booleanOrNull(key: String): Boolean? =
+        get(key)?.takeIf { it.isJsonPrimitive }?.let { runCatching { it.asBoolean }.getOrNull() }
+
+    private fun JsonObject.longOrNull(key: String): Long? =
+        get(key)?.takeIf { it.isJsonPrimitive }?.let { runCatching { it.asLong }.getOrNull() }
+
+    companion object {
+        internal fun normalizeServer(server: String): String {
+            val trimmed = server.trim().trimEnd('/')
+            return if (trimmed.equals("http://www.appxmg.com", ignoreCase = true)) {
+                NewsmySigner.CLUSTER_SERVER
+            } else {
+                trimmed
+            }
+        }
+
+        internal fun calculatePaymentAmount(price: Double, discount: Double): Double =
+            BigDecimal.valueOf(price)
+                .subtract(BigDecimal.valueOf(discount))
+                .setScale(2, RoundingMode.HALF_UP)
+                .toDouble()
+                .coerceAtLeast(1.0)
+
+        internal fun formatPaymentAmount(amount: Double): String =
+            String.format(Locale.US, "%.2f", amount)
+    }
 }
 

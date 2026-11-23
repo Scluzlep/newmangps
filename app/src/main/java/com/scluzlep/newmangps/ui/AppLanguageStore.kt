@@ -8,8 +8,15 @@ import android.webkit.WebViewClient
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.compositionLocalOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 data class AppLanguage(val code: String, val words: Map<String, String>) {
@@ -219,7 +226,14 @@ private val APP_ENGLISH = mapOf(
     "EnterCommandParameter" to "Enter a command value",
     "TrackIntervalSeconds" to "Reporting interval (seconds)",
     "ShakeSensitivityRange" to "Sensitivity (1-5)",
-    "PowerModeCode" to "Power mode code (20/21/22)", "Send" to "Send"
+    "PowerModeCode" to "Power mode code (20/21/22)", "Send" to "Send",
+    "MapSource" to "Map source", "MapStyle" to "Map style",
+    "MapTileError" to "Map tiles failed to load", "ShowFences" to "Show geofences",
+    "MapSettings" to "Map settings", "SatelliteHybrid" to "Satellite hybrid",
+    "SwitchMapSource" to "Switch map source",
+    "TencentMap" to "Tencent Map", "TianMap" to "Tianditu Map",
+    "BingMap" to "Bing Map", "ArcGISMap" to "ArcGIS Map",
+    "OpenStreetMap" to "OpenStreetMap", "GoogleMap" to "Google Map"
 )
 
 val LocalAppLanguage = compositionLocalOf { AppLanguage("zh-CN", emptyMap()) }
@@ -236,73 +250,120 @@ class AppLanguageStore(context: Context) {
     private val preferences = appContext.getSharedPreferences("app_language", Context.MODE_PRIVATE)
     private val _state = MutableStateFlow(AppLanguage(preferences.getString("code", "zh-CN") ?: "zh-CN", emptyMap()))
     val state = _state.asStateFlow()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var selectJob: Job? = null
+    private var loadSeq = 0
+    private var released = false
     private var loader: WebView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @SuppressLint("SetJavaScriptEnabled")
     fun select(code: String) {
-        if (!code.matches(Regex("[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})?"))) return
-        preferences.edit().putString("code", code).apply()
-        val cached = preferences.getString("words_$code", null)?.let(::parseWords).orEmpty()
-        _state.value = AppLanguage(code, cached)
-        loader?.destroy()
-        val view = WebView(appContext)
-        loader = view
-        view.settings.javaScriptEnabled = true
-        view.addJavascriptInterface(object {
-            @JavascriptInterface
-            fun loaded(json: String) {
-                mainHandler.post {
-                    val words = parseWords(json)
-                    if (loader === view) {
-                        if (words.isNotEmpty()) {
-                            _state.value = AppLanguage(code, words)
-                            preferences.edit().putString("words_$code", json).apply()
-                        }
-                        loader = null
-                        view.destroy()
-                    }
+        if (released || !code.matches(Regex("[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})?"))) return
+        val seq = ++loadSeq
+        selectJob?.cancel()
+        mainHandler.removeCallbacksAndMessages(null)
+        loader?.let {
+            it.stopLoading()
+            it.destroy()
+        }
+        loader = null
+
+        selectJob = scope.launch {
+            val loadedAssets = withContext(Dispatchers.IO) {
+                preferences.edit().putString("code", code).apply()
+                val cached = preferences.getString("words_$code", null)?.let(::parseWords).orEmpty()
+                val english = appContext.assets.open("Language/en.js").bufferedReader().use { it.readText() }
+                val chinese = if (code == "zh-CN") {
+                    appContext.assets.open("Language/zh-CN.js").bufferedReader().use { it.readText() }
+                } else ""
+                Triple(cached, english, chinese)
+            }
+            if (released || seq != loadSeq) return@launch
+            val (cached, english, chinese) = loadedAssets
+            _state.value = AppLanguage(code, cached)
+
+            val view = WebView(appContext)
+            loader = view
+            view.settings.javaScriptEnabled = true
+            val timeoutRunnable = Runnable {
+                if (loader === view) {
+                    mainHandler.removeCallbacksAndMessages(null)
+                    loader = null
+                    view.stopLoading()
+                    view.destroy()
                 }
             }
-        }, "NativeLanguage")
-        view.webViewClient = WebViewClient()
-        val english = appContext.assets.open("Language/en.js").bufferedReader().use { it.readText() }
-        val chinese = if (code == "zh-CN") appContext.assets.open("Language/zh-CN.js")
-            .bufferedReader().use { it.readText() } else ""
-        val extra = if (code != "en" && code != "zh-CN") """
-            var language=document.createElement('script');
-            language.src='https://app.newsmy-nmgps.com/Language/$code.js';
-            language.onload=function(){
-              var custom=document.createElement('script');
-              custom.src='https://app.newsmy-nmgps.com/Language/Custom/$code.js';
-              custom.onload=custom.onerror=publishLanguage;
-              document.head.appendChild(custom);
-            };
-            language.onerror=publishLanguage;
-            document.head.appendChild(language);
-        """.trimIndent() else "publishLanguage();"
-        view.loadDataWithBaseURL(
-            "https://app.newsmy-nmgps.com/",
-            """
-            <!doctype html><html><head><meta charset="utf-8"></head><body>
-            <script>window.MGTS={Lang:{}};
-            $english
-            var englishBase=Object.assign({},MGTS.Lang);
-            function publishLanguage(){
-              NativeLanguage.loaded(JSON.stringify(Object.assign({},englishBase,MGTS.Lang)));
-            }
-            $chinese
-            $extra
-            </script>
-            </body></html>
-            """.trimIndent(), "text/html", "UTF-8", null
-        )
-        mainHandler.postDelayed({
-            if (loader === view) view.evaluateJavascript("publishLanguage();", null)
-        }, 10_000)
+            view.addJavascriptInterface(object {
+                @JavascriptInterface
+                fun loaded(json: String, cacheable: Boolean) {
+                    mainHandler.post {
+                        if (loader === view) {
+                            mainHandler.removeCallbacks(timeoutRunnable)
+                            val words = parseWords(json)
+                            if (words.isNotEmpty()) {
+                                if (cacheable) {
+                                    _state.value = AppLanguage(code, words)
+                                    preferences.edit().putString("words_$code", json).apply()
+                                } else if (cached.isEmpty() && code != "zh-TW") {
+                                    _state.value = AppLanguage(code, words)
+                                }
+                            }
+                            loader = null
+                            view.stopLoading()
+                            view.destroy()
+                        }
+                    }
+                }
+            }, "NativeLanguage")
+            view.webViewClient = WebViewClient()
+            val extra = if (code != "en" && code != "zh-CN") """
+                var language=document.createElement('script');
+                language.src='https://app.newsmy-nmgps.com/Language/$code.js';
+                language.onload=function(){
+                  var custom=document.createElement('script');
+                  custom.src='https://app.newsmy-nmgps.com/Language/Custom/$code.js';
+                  custom.onload=function(){publishLanguage(true);};
+                  custom.onerror=function(){publishLanguage(true);};
+                  document.head.appendChild(custom);
+                };
+                language.onerror=function(){publishLanguage(false);};
+                document.head.appendChild(language);
+            """.trimIndent() else "publishLanguage(true);"
+            view.loadDataWithBaseURL(
+                "https://app.newsmy-nmgps.com/",
+                """
+                <!doctype html><html><head><meta charset="utf-8"></head><body>
+                <script>window.MGTS={Lang:{}};
+                $english
+                var englishBase=Object.assign({},MGTS.Lang);
+                function publishLanguage(cacheable){
+                  NativeLanguage.loaded(JSON.stringify(Object.assign({},englishBase,MGTS.Lang)), cacheable !== false);
+                }
+                $chinese
+                $extra
+                </script>
+                </body></html>
+                """.trimIndent(), "text/html", "UTF-8", null
+            )
+            mainHandler.postDelayed(timeoutRunnable, 10_000)
+        }
     }
 
     fun loadSaved() = select(_state.value.code)
+
+    fun release() {
+        released = true
+        selectJob?.cancel()
+        selectJob = null
+        mainHandler.removeCallbacksAndMessages(null)
+        loader?.let {
+            it.stopLoading()
+            it.destroy()
+        }
+        loader = null
+        scope.cancel()
+    }
 
     private fun parseWords(json: String): Map<String, String> = runCatching {
         val value = JSONObject(json)

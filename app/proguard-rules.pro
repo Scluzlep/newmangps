@@ -13,3 +13,12 @@
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
 
+# Keep WebView JavascriptInterface methods and map bridge models for R8 minification.
+-keepattributes RuntimeVisibleAnnotations
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keep class com.scluzlep.newmangps.ui.screens.map.MapDeviceMarker { *; }
+-keep class com.scluzlep.newmangps.ui.screens.map.MapFenceOverlay { *; }
+
+

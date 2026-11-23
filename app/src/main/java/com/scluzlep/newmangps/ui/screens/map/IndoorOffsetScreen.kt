@@ -6,21 +6,33 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.scluzlep.newmangps.data.MapSource
 import com.scluzlep.newmangps.data.model.DevicePosition
 import com.scluzlep.newmangps.data.model.IndoorOffset
 import com.scluzlep.newmangps.data.repository.NewsmyRepository
 import com.scluzlep.newmangps.data.util.CoordinateTransform
 import com.scluzlep.newmangps.ui.LocalAppLanguage
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IndoorOffsetScreen(
-    teid: String, position: DevicePosition?, repository: NewsmyRepository, onBack: () -> Unit
+    teid: String,
+    position: DevicePosition?,
+    repository: NewsmyRepository,
+    mapSource: MapSource = MapSource.AMAP,
+    satellite: Boolean = false,
+    traffic: Boolean = false,
+    onSelectMapSource: (MapSource) -> Unit = {},
+    onToggleSatellite: (Boolean) -> Unit = {},
+    onToggleTraffic: (Boolean) -> Unit = {},
+    onBack: () -> Unit
 ) {
     val language = LocalAppLanguage.current
     val scope = rememberCoroutineScope()
@@ -30,9 +42,13 @@ fun IndoorOffsetScreen(
     var address by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val source = selected?.let { CoordinateTransform.wgs84ToGcj02(it.latitude, it.longitude) }
-        ?: position?.gcjLatLng
-    val destination = selected?.let { CoordinateTransform.wgs84ToGcj02(it.targetLatitude, it.targetLongitude) }
+    var showLayerDialog by remember { mutableStateOf(false) }
+
+    val source = selected?.let { CoordinateTransform.LatLng(it.latitude, it.longitude) }
+        ?: position?.takeIf {
+            it.rawLat in -85.0..85.0 && it.rawLon in -180.0..180.0 && (it.rawLat != 0.0 || it.rawLon != 0.0)
+        }?.let { CoordinateTransform.LatLng(it.rawLat, it.rawLon) }
+    val destination = selected?.let { CoordinateTransform.LatLng(it.targetLatitude, it.targetLongitude) }
         ?: target
 
     fun refresh() {
@@ -47,31 +63,49 @@ fun IndoorOffsetScreen(
     LaunchedEffect(teid) { refresh() }
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text(language.text("PosOffset", "室内位置修正")) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.text("Back", "返回")) } })
+        TopAppBar(
+            title = { Text(language.text("PosOffset", "室内位置修正")) },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, language.text("Back", "返回"))
+                }
+            },
+            actions = {
+                IconButton(onClick = { showLayerDialog = true }) {
+                    Icon(Icons.Default.Layers, contentDescription = language.text("MapSource", "地图源"))
+                }
+            }
+        )
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (source != null) AmapJsMap(
-                points = listOfNotNull(source, destination), markerIndex = if (destination == null) 0 else 1,
-                onMapTap = { selected = null; target = it }, modifier = Modifier.fillMaxWidth().weight(1f)
+                points = listOfNotNull(source, destination),
+                markerIndex = if (destination == null) 0 else 1,
+                mapSource = mapSource,
+                satellite = satellite,
+                traffic = traffic,
+                onMapTap = { selected = null; target = it },
+                modifier = Modifier.fillMaxWidth().weight(1f)
             ) else Box(Modifier.fillMaxWidth().weight(1f)) {
                 Text(language.text("NoLocationForOffset", "设备尚无有效定位，无法设置修正点"), modifier = Modifier.padding(16.dp))
             }
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (selected != null) Text("${language.text("Viewing", "正在查看")} ${selected?.name}")
-                else Text(if (target == null) language.text("SelectCorrectedLocation", "在地图上选择修正后的坐标") else
-                    "${language.text("CorrectedCoordinates", "修正坐标")} ${"%.6f".format(target?.latitude)}, ${"%.6f".format(target?.longitude)}")
+                else Text(
+                    if (target == null) language.text("SelectCorrectedLocation", "在地图上选择修正后的坐标")
+                    else "${language.text("CorrectedCoordinates", "修正坐标")} ${String.format(Locale.US, "%.6f, %.6f", target?.latitude ?: 0.0, target?.longitude ?: 0.0)}"
+                )
                 OutlinedTextField(address, { address = it }, label = { Text(language.text("PositionDescription", "位置说明")) },
                     modifier = Modifier.fillMaxWidth(), enabled = !busy)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         val sourcePosition = position ?: return@Button
                         val targetPoint = target ?: return@Button
-                        val wgs = CoordinateTransform.gcj02ToWgs84(targetPoint.latitude, targetPoint.longitude)
                         scope.launch {
                             busy = true
-                            val result = repository.addIndoorOffset(teid, sourcePosition,
-                                wgs.longitude, wgs.latitude, address)
+                            val result = repository.addIndoorOffset(
+                                teid, sourcePosition, targetPoint.longitude, targetPoint.latitude, address
+                            )
                             error = if (result.getOrDefault(false)) null else result.exceptionOrNull()?.message ?: language.text("SaveFailed", "保存失败")
                             if (result.getOrDefault(false)) { target = null; refresh() }
                             busy = false
@@ -111,5 +145,17 @@ fun IndoorOffsetScreen(
                 }
             }
         }
+    }
+
+    if (showLayerDialog) {
+        MapLayerDialog(
+            currentSource = mapSource,
+            satellite = satellite,
+            traffic = traffic,
+            onSelectSource = onSelectMapSource,
+            onToggleSatellite = onToggleSatellite,
+            onToggleTraffic = onToggleTraffic,
+            onDismiss = { showLayerDialog = false }
+        )
     }
 }

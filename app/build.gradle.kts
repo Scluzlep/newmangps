@@ -25,8 +25,8 @@ android {
         applicationId = "com.scluzlep.newmangps"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2110722000
-        versionName = "2.0.0"
+        versionCode = 2110722100
+        versionName = "2.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
@@ -43,6 +43,11 @@ android {
             "String",
             "AMAP_WEB_SERVICE_KEY",
             buildConfigString(reportCredential("高德 WebService API Key"))
+        )
+        buildConfigField(
+            "String",
+            "TIANMAP_KEY",
+            buildConfigString(reportCredential("天地图 API Key"))
         )
     }
 
@@ -62,8 +67,8 @@ android {
             if (!System.getenv("ANDROID_KEYSTORE_PATH").isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("ciRelease")
             }
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -102,4 +107,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.ui.tooling)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

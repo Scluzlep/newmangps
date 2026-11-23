@@ -14,7 +14,10 @@ data class AmapPlace(
     val name: String,
     val address: String,
     val point: CoordinateTransform.LatLng
-)
+) {
+    val wgsPoint: CoordinateTransform.LatLng
+        get() = CoordinateTransform.gcj02ToWgs84(point.latitude, point.longitude)
+}
 
 class AmapGeocoder {
     private val client = OkHttpClient.Builder()
@@ -47,6 +50,7 @@ class AmapGeocoder {
                     }
                     json.getAsJsonObject("regeocode")
                         ?.get("formatted_address")
+                        ?.takeIf { it.isJsonPrimitive }
                         ?.asString
                         ?.takeIf(String::isNotBlank)
                         ?: error("地址服务未返回详细地址")

@@ -7,7 +7,9 @@ import android.util.Base64
 import com.scluzlep.newmangps.data.model.PendingPayment
 import org.json.JSONObject
 import org.json.JSONArray
+import java.security.GeneralSecurityException
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -71,13 +73,23 @@ class LoginSessionStore(context: Context) {
     }
 
     private fun saveJson(prefix: String, json: JSONObject) {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        val encrypted = cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))
+        val plainBytes = json.toString().toByteArray(Charsets.UTF_8)
+        val (iv, encrypted) = try {
+            encryptBytes(plainBytes)
+        } catch (_: GeneralSecurityException) {
+            resetKey()
+            encryptBytes(plainBytes)
+        }
         check(preferences.edit()
-            .putString("${prefix}_iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putString("${prefix}_iv", Base64.encodeToString(iv, Base64.NO_WRAP))
             .putString("${prefix}_data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
             .commit()) { "无法保存登录会话" }
+    }
+
+    private fun encryptBytes(plainBytes: ByteArray): Pair<ByteArray, ByteArray> {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        return cipher.iv to cipher.doFinal(plainBytes)
     }
 
     fun load(): SavedLogin? = runCatching {
@@ -105,13 +117,32 @@ class LoginSessionStore(context: Context) {
     }
 
     fun clear() {
-        preferences.edit().remove("login_iv").remove("login_data")
-            .remove("iv").remove("data").commit()
+        preferences.edit()
+            .remove("login_iv").remove("login_data")
+            .remove("iv").remove("data")
+            .remove("payment_iv").remove("payment_data")
+            .commit()
     }
 
-    private fun key(): SecretKey {
+    private fun resetKey() = synchronized(keyLock) {
+        runCatching {
+            val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            if (store.containsAlias(alias)) store.deleteEntry(alias)
+        }
+    }
+
+    private fun key(): SecretKey = synchronized(keyLock) {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(alias, null) as? SecretKey)?.let { return it }
+        val existing = try {
+            store.getKey(alias, null) as? SecretKey
+        } catch (_: UnrecoverableKeyException) {
+            runCatching { store.deleteEntry(alias) }
+            null
+        } catch (_: GeneralSecurityException) {
+            runCatching { store.deleteEntry(alias) }
+            null
+        }
+        if (existing != null) return existing
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         generator.init(
             KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
@@ -120,5 +151,9 @@ class LoginSessionStore(context: Context) {
                 .build()
         )
         return generator.generateKey()
+    }
+
+    private companion object {
+        private val keyLock = Any()
     }
 }

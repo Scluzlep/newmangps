@@ -57,7 +57,7 @@ fun DeviceParametersScreen(
         )
     }) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -85,7 +85,11 @@ fun DeviceParametersScreen(
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(language.text("DisableLbs", "禁用基站定位"), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    language.text("DisableLbs", "禁用基站定位"),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp)
+                )
                 Switch(checked = lbsDisabled, onCheckedChange = { lbsDisabled = it })
             }
             Button(onClick = { save { repository.setLbsDisabled(teid, lbsDisabled) } },
