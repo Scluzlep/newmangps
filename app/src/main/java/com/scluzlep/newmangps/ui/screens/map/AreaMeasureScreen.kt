@@ -6,7 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Layers
+import com.scluzlep.newmangps.ui.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -65,7 +65,7 @@ fun AreaMeasureScreen(
             },
             actions = {
                 IconButton(onClick = { showLayerDialog = true }) {
-                    Icon(Icons.Default.Layers, contentDescription = language.text("MapSource", "地图源"))
+                    Icon(AppIcons.Layers, contentDescription = language.text("MapSource", "地图源"))
                 }
             }
         )

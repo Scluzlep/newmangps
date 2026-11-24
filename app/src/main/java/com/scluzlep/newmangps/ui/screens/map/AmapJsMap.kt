@@ -1,27 +1,84 @@
 package com.scluzlep.newmangps.ui.screens.map
 
-import android.annotation.SuppressLint
-import android.content.Context
-import android.graphics.Color
-import android.util.Log
-import android.view.MotionEvent
-import android.webkit.ConsoleMessage
-import android.webkit.JavascriptInterface
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.viewinterop.AndroidView
-import com.scluzlep.newmangps.BuildConfig
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.scluzlep.newmangps.data.MapSource
 import com.scluzlep.newmangps.data.util.CoordinateTransform
 import com.scluzlep.newmangps.ui.LocalAppLanguage
-import org.json.JSONArray
-import org.json.JSONObject
+import com.scluzlep.newmangps.ui.theme.HyperBlue
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.hypot
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 data class MapDeviceMarker(
     val teid: String,
@@ -45,84 +102,32 @@ internal fun isValidMapCoordinate(latitude: Double, longitude: Double): Boolean 
     latitude.isFinite() && longitude.isFinite() &&
         latitude in -85.0..85.0 && longitude in -180.0..180.0
 
-private fun CoordinateTransform.LatLng.toMapJsonObject(mapSource: MapSource): JSONObject {
-    val converted = mapSource.toMapCoord(this)
-    return JSONObject()
-        .put("lat", converted.latitude)
-        .put("lon", converted.longitude)
+private class CameraTrackingState {
+    var hasFitted = false
+    var previousFocusRequest = ""
+    var previousRawRoutePoints = emptyList<CoordinateTransform.LatLng>()
+    var previousRawMarkers = emptyList<MapDeviceMarker>()
+    var previousRawPolygon = emptyList<CoordinateTransform.LatLng>()
+    var previousRawRadius = 0
+    var previousRawFences = emptyList<MapFenceOverlay>()
 }
 
-internal fun serializeMapPointsJson(
-    points: List<CoordinateTransform.LatLng>,
-    mapSource: MapSource
-): String {
-    val array = JSONArray()
-    points.forEach { point ->
-        if (isValidMapCoordinate(point.latitude, point.longitude)) {
-            array.put(point.toMapJsonObject(mapSource))
-        }
-    }
-    return array.toString()
-}
+private data class RenderedDeviceMarker(
+    val teid: String,
+    val name: String,
+    val mapCoord: CoordinateTransform.LatLng,
+    val direction: Int,
+    val status: String,
+    val iconUrl: String
+)
 
-internal fun serializeDeviceMarkersJson(
-    markers: List<MapDeviceMarker>,
-    mapSource: MapSource
-): String {
-    val array = JSONArray()
-    markers.forEach { marker ->
-        if (isValidMapCoordinate(marker.latitude, marker.longitude)) {
-            val converted = mapSource.toMapCoord(
-                CoordinateTransform.LatLng(marker.latitude, marker.longitude)
-            )
-            array.put(
-                JSONObject()
-                    .put("teid", marker.teid)
-                    .put("name", marker.name)
-                    .put("lat", converted.latitude)
-                    .put("lon", converted.longitude)
-                    .put("direction", marker.direction)
-                    .put("status", marker.status)
-                    .put("iconUrl", marker.iconUrl)
-            )
-        }
-    }
-    return array.toString()
-}
-
-internal fun serializeFencesJson(
-    fences: List<MapFenceOverlay>,
-    mapSource: MapSource
-): String {
-    val array = JSONArray()
-    fences.forEach { fence ->
-        val obj = JSONObject()
-            .put("name", fence.name)
-            .put("isPolygon", fence.isPolygon)
-            .put("radiusMeters", fence.radiusMeters.coerceAtLeast(0))
-        val center = fence.center
-        if (center != null && isValidMapCoordinate(center.latitude, center.longitude)) {
-            obj.put("center", center.toMapJsonObject(mapSource))
-        } else {
-            obj.put("center", JSONObject.NULL)
-        }
-        val verticesArray = JSONArray()
-        fence.vertices.forEach { vertex ->
-            if (isValidMapCoordinate(vertex.latitude, vertex.longitude)) {
-                verticesArray.put(vertex.toMapJsonObject(mapSource))
-            }
-        }
-        obj.put("vertices", verticesArray)
-        array.put(obj)
-    }
-    return array.toString()
-}
-
-internal fun serializeSpeedsJson(speeds: List<Int>): String =
-    JSONArray().apply { speeds.forEach { put(it) } }.toString()
-
-internal fun serializeLabelsJson(labels: Map<String, String>): String =
-    JSONObject().apply { labels.forEach { (key, value) -> put(key, value) } }.toString()
+private data class RenderedFence(
+    val name: String,
+    val isPolygon: Boolean,
+    val centerMap: CoordinateTransform.LatLng?,
+    val radiusMeters: Int,
+    val verticesMap: List<CoordinateTransform.LatLng>
+)
 
 @Composable
 fun AmapJsMap(
@@ -149,1024 +154,966 @@ fun AmapJsMap(
     onDeviceTap: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val viewConfig = LocalViewConfiguration.current
     val language = LocalAppLanguage.current
-    val labels = mapOf(
-        "error" to language.text("MapTileError", "地图瓦片加载失败，请检查网络"),
-        "start" to language.text("StartLocation", "起点"),
-        "end" to language.text("EndLocation", "终点"),
-        "retry" to language.text("Retry", "重试")
-    )
-    AndroidView(
-        factory = { context ->
-            AmapMapView(
-                context = context,
-                initialMapSource = mapSource,
-                initialSatellite = satellite,
-                initialTraffic = traffic,
-                onMapTap = onMapTap,
-                onDeviceTap = onDeviceTap,
-                controlsTopPx = controlsTopPx,
-                initialLabels = labels
+    val darkTheme = isSystemInDarkTheme()
+    val textMeasurer = rememberTextMeasurer()
+
+    val errorLabel = language.text("MapTileError", "地图瓦片加载失败，请检查网络")
+    val startLabel = language.text("StartLocation", "起点")
+    val endLabel = language.text("EndLocation", "终点")
+    val retryLabel = language.text("Retry", "重试")
+
+    val validPoints = remember(points) {
+        points.filter { isValidMapCoordinate(it.latitude, it.longitude) }
+    }
+    val validMarkers = remember(otherMarkers) {
+        otherMarkers.filter { isValidMapCoordinate(it.latitude, it.longitude) }
+    }
+    val validPolygon = remember(polygonPoints) {
+        polygonPoints.filter { isValidMapCoordinate(it.latitude, it.longitude) }
+    }
+    val normalizedRadius = circleRadiusMeters.coerceAtLeast(0)
+    val clampedIndex = markerIndex.coerceIn(0, (validPoints.size - 1).coerceAtLeast(0))
+
+    val tileSizePx = MapProjection.BASE_TILE_DP * density.density
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    var centerWgs by remember { mutableStateOf(CoordinateTransform.LatLng(35.86, 104.19)) }
+    var zoom by remember { mutableDoubleStateOf(5.0) }
+    val tracker = remember { CameraTrackingState() }
+
+    val maxZoom = mapSource.maxZoom.toDouble()
+    LaunchedEffect(maxZoom) {
+        if (zoom > maxZoom) zoom = maxZoom
+    }
+
+    val layerSpecs = remember(mapSource, satellite, traffic) {
+        buildTileLayerSpecs(mapSource, satellite, traffic)
+    }
+
+    var retryNonce by remember { mutableIntStateOf(0) }
+    var tileRevision by remember { mutableIntStateOf(0) }
+    var iconRevision by remember { mutableIntStateOf(0) }
+    var loadedBaseTiles by remember(mapSource, satellite, retryNonce) { mutableIntStateOf(0) }
+    var failedBaseTiles by remember(mapSource, satellite, retryNonce) { mutableIntStateOf(0) }
+
+    val mapPoints = remember(validPoints, mapSource) {
+        validPoints.map { mapSource.toMapCoord(it) }
+    }
+    val mapMarkers = remember(validMarkers, mapSource) {
+        validMarkers.map {
+            RenderedDeviceMarker(
+                teid = it.teid,
+                name = it.name.ifBlank { it.teid },
+                mapCoord = mapSource.toMapCoord(CoordinateTransform.LatLng(it.latitude, it.longitude)),
+                direction = it.direction,
+                status = it.status.ifBlank { "offline" },
+                iconUrl = it.iconUrl
             )
-        },
-        update = { view ->
-            view.setOnMapTap(onMapTap)
-            view.setOnDeviceTap(onDeviceTap)
-            view.updateLabels(labels)
-            view.updateMap(
-                points = points,
-                markerIndex = markerIndex,
-                mapSource = mapSource,
-                satellite = satellite,
-                traffic = traffic,
-                circleRadiusMeters = circleRadiusMeters,
-                markerName = markerName,
-                markerDirection = markerDirection,
-                markerOnline = markerOnline,
-                markerStatus = markerStatus,
-                markerIconUrl = markerIconUrl,
-                followMarker = followMarker,
-                autoCenter = autoCenter,
-                focusRequest = focusRequest,
-                routeSpeeds = routeSpeeds,
-                otherMarkers = otherMarkers,
-                polygonPoints = polygonPoints,
-                fences = fences
+        }
+    }
+    val mapPolygon = remember(validPolygon, mapSource) {
+        validPolygon.map { mapSource.toMapCoord(it) }
+    }
+    val mapFences = remember(fences, mapSource) {
+        fences.map { fence ->
+            val centerMap = fence.center
+                ?.takeIf { isValidMapCoordinate(it.latitude, it.longitude) }
+                ?.let { mapSource.toMapCoord(it) }
+            val vertsMap = fence.vertices
+                .filter { isValidMapCoordinate(it.latitude, it.longitude) }
+                .map { mapSource.toMapCoord(it) }
+            RenderedFence(
+                name = fence.name,
+                isPolygon = fence.isPolygon,
+                centerMap = centerMap,
+                radiusMeters = fence.radiusMeters.coerceAtLeast(0),
+                verticesMap = vertsMap
             )
-        },
-        onRelease = { view ->
-            view.stopLoading()
-            view.destroy()
-        },
-        modifier = modifier
-    )
-}
+        }
+    }
 
-@SuppressLint("SetJavaScriptEnabled")
-private class AmapMapView(
-    context: Context,
-    initialMapSource: MapSource,
-    initialSatellite: Boolean,
-    initialTraffic: Boolean,
-    private var onMapTap: ((CoordinateTransform.LatLng) -> Unit)?,
-    private var onDeviceTap: ((String) -> Unit)?,
-    private val controlsTopPx: Int,
-    initialLabels: Map<String, String>
-) : WebView(context) {
-    private var pageReady = false
-    private var currentMapSource = initialMapSource
-    private var currentSatellite = initialSatellite
-    private var currentTraffic = initialTraffic
-    private var pendingLabelsJson = serializeLabelsJson(initialLabels)
-    private var previousLabelsJson = pendingLabelsJson
+    val currentMapPoint = mapPoints.getOrNull(clampedIndex)
 
-    private var pendingJson = "[]"
-    private var pendingIndex = 0
-    private var pendingRadius = 0
-    private var pendingName = ""
-    private var pendingDirection = 0
-    private var pendingOnline = true
-    private var pendingStatus = "online"
-    private var pendingIconUrl = ""
-    private var pendingFollowMarker = false
-    private var pendingSpeeds = "[]"
-    private var pendingOtherMarkers = "[]"
-    private var pendingPolygon = "[]"
-    private var pendingFences = "[]"
-    private var pendingHasContent = false
+    val padX = min(36.0 * density.density, viewportSize.width * 0.1)
+    val padTop = min(controlsTopPx * density.density + 16.0 * density.density, viewportSize.height * 0.2)
+    val padBottom = if (controlsTopPx > 24) {
+        min(120.0 * density.density, viewportSize.height * 0.24)
+    } else {
+        min(32.0 * density.density, viewportSize.height * 0.14)
+    }
 
-    private var allowedTeids = emptySet<String>()
-    private var previousRoute = ""
-    private var previousSpeeds = "[]"
-    private var previousRawRoutePoints = emptyList<CoordinateTransform.LatLng>()
-    private var previousRawMarkers = emptyList<MapDeviceMarker>()
-    private var previousRawPolygon = emptyList<CoordinateTransform.LatLng>()
-    private var previousRawRadius = 0
-    private var previousRawFences = emptyList<MapFenceOverlay>()
-    private var lastPayload = ""
-    private var hasFitted = false
-    private var previousFocusRequest = ""
+    // Smart camera fitting & follow updates
+    LaunchedEffect(
+        validPoints,
+        validMarkers,
+        validPolygon,
+        normalizedRadius,
+        fences,
+        clampedIndex,
+        focusRequest,
+        autoCenter,
+        followMarker,
+        viewportSize
+    ) {
+        if (viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
 
-    init {
-        setBackgroundColor(Color.rgb(241, 244, 246))
-        settings.javaScriptEnabled = true
-        settings.domStorageEnabled = true
-        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
-        settings.loadWithOverviewMode = true
-        settings.useWideViewPort = true
-        settings.defaultTextEncodingName = "UTF-8"
+        val rawRouteChanged = validPoints != tracker.previousRawRoutePoints
+        val rawMarkersChanged = validMarkers != tracker.previousRawMarkers
+        val markersExpandedFromEmpty = tracker.previousRawMarkers.isEmpty() && validMarkers.isNotEmpty()
+        val focusChanged = focusRequest != tracker.previousFocusRequest
+        val radiusChanged = normalizedRadius != tracker.previousRawRadius
+        val polygonAppendedOne = validPolygon.size == tracker.previousRawPolygon.size + 1 &&
+            validPolygon.dropLast(1) == tracker.previousRawPolygon
+        val polygonResetOrReplaced = validPolygon != tracker.previousRawPolygon &&
+            !polygonAppendedOne &&
+            !(validPolygon.size + 1 == tracker.previousRawPolygon.size &&
+                tracker.previousRawPolygon.dropLast(1) == validPolygon)
+        val fenceChanged = radiusChanged || polygonResetOrReplaced || fences != tracker.previousRawFences
 
-        addJavascriptInterface(object {
-            @JavascriptInterface
-            fun onMapTap(longitude: Double, latitude: Double) {
-                if (isValidMapCoordinate(latitude, longitude)) {
-                    post {
-                        val wgs = currentMapSource.fromMapCoord(
-                            CoordinateTransform.LatLng(latitude, longitude)
-                        )
-                        onMapTap?.invoke(wgs)
-                    }
+        val hasContent = validPoints.isNotEmpty() || validMarkers.isNotEmpty() ||
+            validPolygon.isNotEmpty() || fences.isNotEmpty()
+
+        val focusPrimary = tracker.hasFitted && focusChanged && !markersExpandedFromEmpty
+        val fitRoute = hasContent && (
+            !tracker.hasFitted ||
+                (focusChanged && !focusPrimary) ||
+                fenceChanged ||
+                (autoCenter && (rawRouteChanged || rawMarkersChanged))
+            )
+
+        tracker.previousFocusRequest = focusRequest
+        tracker.previousRawRoutePoints = validPoints
+        tracker.previousRawMarkers = validMarkers
+        tracker.previousRawPolygon = validPolygon
+        tracker.previousRawRadius = normalizedRadius
+        tracker.previousRawFences = fences
+
+        if (focusPrimary && currentMapPoint != null) {
+            val targetZoom = max(zoom, 15.0).coerceIn(2.0, min(17.0, maxZoom))
+            val (centerMap, newZoom) = MapProjection.fitBoundsZoom(
+                minLat = currentMapPoint.latitude,
+                maxLat = currentMapPoint.latitude,
+                minLon = currentMapPoint.longitude,
+                maxLon = currentMapPoint.longitude,
+                viewportWidthPx = viewportSize.width.toDouble(),
+                viewportHeightPx = viewportSize.height.toDouble(),
+                padLeft = padX,
+                padTop = padTop,
+                padRight = padX,
+                padBottom = padBottom,
+                tileSizePx = tileSizePx,
+                maxZoom = min(17.0, maxZoom),
+                currentZoom = targetZoom
+            )
+            centerWgs = mapSource.fromMapCoord(centerMap)
+            zoom = newZoom
+            tracker.hasFitted = true
+        } else if (fitRoute) {
+            var minLat = 90.0
+            var maxLat = -90.0
+            var minLon = 180.0
+            var maxLon = -180.0
+            var anyBound = false
+
+            fun includePoint(lat: Double, lon: Double) {
+                anyBound = true
+                if (lat < minLat) minLat = lat
+                if (lat > maxLat) maxLat = lat
+                if (lon < minLon) minLon = lon
+                if (lon > maxLon) maxLon = lon
+            }
+
+            fun includeCircle(lat: Double, lon: Double, radiusMeters: Int) {
+                if (radiusMeters <= 0) {
+                    includePoint(lat, lon)
+                    return
+                }
+                val dLat = Math.toDegrees(radiusMeters / 6_378_137.0)
+                val cosLat = cos(Math.toRadians(lat.coerceIn(-80.0, 80.0))).coerceAtLeast(1e-4)
+                val dLon = Math.toDegrees(radiusMeters / (6_378_137.0 * cosLat))
+                includePoint(lat - dLat, lon - dLon)
+                includePoint(lat + dLat, lon + dLon)
+            }
+
+            mapPoints.forEach { includePoint(it.latitude, it.longitude) }
+            mapMarkers.forEach { includePoint(it.mapCoord.latitude, it.mapCoord.longitude) }
+            mapPolygon.forEach { includePoint(it.latitude, it.longitude) }
+            if (normalizedRadius > 0 && currentMapPoint != null) {
+                includeCircle(currentMapPoint.latitude, currentMapPoint.longitude, normalizedRadius)
+            }
+            mapFences.forEach { fence ->
+                if (fence.isPolygon) {
+                    fence.verticesMap.forEach { includePoint(it.latitude, it.longitude) }
+                } else if (fence.centerMap != null && fence.radiusMeters > 0) {
+                    includeCircle(fence.centerMap.latitude, fence.centerMap.longitude, fence.radiusMeters)
                 }
             }
 
-            @JavascriptInterface
-            fun onDeviceTap(teid: String) {
-                post {
-                    if (teid in allowedTeids) {
-                        onDeviceTap?.invoke(teid)
-                    }
-                }
+            if (anyBound) {
+                val (centerMap, newZoom) = MapProjection.fitBoundsZoom(
+                    minLat = minLat,
+                    maxLat = maxLat,
+                    minLon = minLon,
+                    maxLon = maxLon,
+                    viewportWidthPx = viewportSize.width.toDouble(),
+                    viewportHeightPx = viewportSize.height.toDouble(),
+                    padLeft = padX,
+                    padTop = padTop,
+                    padRight = padX,
+                    padBottom = padBottom,
+                    tileSizePx = tileSizePx,
+                    maxZoom = min(17.0, maxZoom),
+                    currentZoom = zoom
+                )
+                centerWgs = mapSource.fromMapCoord(centerMap)
+                zoom = newZoom
+                tracker.hasFitted = true
             }
-        }, "NativeMap")
-
-        webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                    val safeMessage = redactSecrets(message.message())
-                    val safeSource = redactSecrets(message.sourceId())
-                    Log.e(TAG, "$safeMessage ($safeSource:${message.lineNumber()})")
-                }
-                return true
+        } else if (currentMapPoint != null && followMarker) {
+            val camMap = mapSource.toMapCoord(centerWgs)
+            val (camWx, camWy) = MapProjection.latLonToWorldPx(camMap.latitude, camMap.longitude, zoom, tileSizePx)
+            val (ptWx, ptWy) = MapProjection.latLonToWorldPx(
+                currentMapPoint.latitude,
+                currentMapPoint.longitude,
+                zoom,
+                tileSizePx
+            )
+            val sx = viewportSize.width / 2.0 + (ptWx - camWx)
+            val sy = viewportSize.height / 2.0 + (ptWy - camWy)
+            val marginX = viewportSize.width * 0.1
+            val marginY = viewportSize.height * 0.1
+            if (sx < marginX || sx > viewportSize.width - marginX ||
+                sy < marginY || sy > viewportSize.height - marginY
+            ) {
+                centerWgs = mapSource.fromMapCoord(currentMapPoint)
             }
         }
+    }
 
-        webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest
-            ): WebResourceResponse? {
-                val url = request.url ?: return null
-                if (url.host == ASSET_HOST) {
-                    val asset = when (url.path) {
-                        "/__assets__/leaflet.js" -> "map/leaflet.js" to "application/javascript"
-                        "/__assets__/leaflet.css" -> "map/leaflet.css" to "text/css"
-                        else -> null
-                    }
-                    if (asset != null) {
-                        return runCatching {
-                            WebResourceResponse(
-                                asset.second,
-                                "UTF-8",
-                                context.assets.open(asset.first)
-                            )
-                        }.getOrElse { error ->
-                            Log.e(TAG, "Failed to open map asset ${asset.first}", error)
-                            null
+    // Load device marker icons if provided
+    val iconUrls = remember(markerIconUrl, validMarkers) {
+        buildList {
+            if (markerIconUrl.isNotBlank()) add(markerIconUrl)
+            validMarkers.forEach { if (it.iconUrl.isNotBlank()) add(it.iconUrl) }
+        }.distinct()
+    }
+    LaunchedEffect(iconUrls) {
+        iconUrls.forEach { url ->
+            if (MapTileRepository.getCachedIcon(url) == null) {
+                launch {
+                    val bmp = MapTileRepository.loadIcon(context, url)
+                    if (bmp != null) iconRevision++
+                }
+            }
+        }
+    }
+
+    // Compute visible slippy tile range
+    val tileZ = floor(zoom).toInt().coerceIn(2, mapSource.maxZoom)
+    val nTiles = 1 shl tileZ
+    val worldSpanAtTileZ = tileSizePx * 2.0.pow(zoom - tileZ)
+    val camMapNow = mapSource.toMapCoord(centerWgs)
+    val (camWxNow, camWyNow) = MapProjection.latLonToWorldPx(
+        camMapNow.latitude,
+        camMapNow.longitude,
+        zoom,
+        tileSizePx
+    )
+    val vpLeftWx = camWxNow - viewportSize.width / 2.0
+    val vpTopWy = camWyNow - viewportSize.height / 2.0
+    val vpRightWx = camWxNow + viewportSize.width / 2.0
+    val vpBottomWy = camWyNow + viewportSize.height / 2.0
+
+    val minTileX = if (viewportSize.width > 0) floor(vpLeftWx / worldSpanAtTileZ).toInt() - 1 else 0
+    val maxTileX = if (viewportSize.width > 0) ceil(vpRightWx / worldSpanAtTileZ).toInt() + 1 else -1
+    val minTileY = if (viewportSize.height > 0) {
+        (floor(vpTopWy / worldSpanAtTileZ).toInt() - 1).coerceAtLeast(0)
+    } else 0
+    val maxTileY = if (viewportSize.height > 0) {
+        (ceil(vpBottomWy / worldSpanAtTileZ).toInt() + 1).coerceAtMost(nTiles - 1)
+    } else -1
+
+    // Fetch missing visible tiles concurrently
+    LaunchedEffect(
+        mapSource,
+        satellite,
+        traffic,
+        tileZ,
+        minTileX,
+        maxTileX,
+        minTileY,
+        maxTileY,
+        retryNonce
+    ) {
+        if (maxTileX < minTileX || maxTileY < minTileY) return@LaunchedEffect
+        val activeLayers = layerSpecs.filter { tileZ in it.minZoom..it.maxZoom }
+        for (ty in minTileY..maxTileY) {
+            for (rawTx in minTileX..maxTileX) {
+                val tx = Math.floorMod(rawTx, nTiles)
+                for (layer in activeLayers) {
+                    val key = MapTileRepository.tileCacheKey(layer.id, tileZ, tx, ty)
+                    val cached = MapTileRepository.getCachedTile(key)
+                    if (cached != null) {
+                        if (!layer.isOptionalOverlay) loadedBaseTiles++
+                    } else {
+                        launch {
+                            when (MapTileRepository.loadTile(context, mapSource, layer, tileZ, tx, ty)) {
+                                is TileFetchResult.Ready -> {
+                                    if (!layer.isOptionalOverlay) loadedBaseTiles++
+                                    tileRevision++
+                                }
+                                is TileFetchResult.Failed -> {
+                                    if (!layer.isOptionalOverlay) failedBaseTiles++
+                                }
+                            }
                         }
                     }
                 }
-                return super.shouldInterceptRequest(view, request)
+            }
+        }
+    }
+
+    val latestState = remember {
+        object {
+            var centerWgs = CoordinateTransform.LatLng(35.86, 104.19)
+            var zoom = 5.0
+            var mapSource = MapSource.AMAP
+            var markers = emptyList<RenderedDeviceMarker>()
+            var onMapTap: ((CoordinateTransform.LatLng) -> Unit)? = null
+            var onDeviceTap: ((String) -> Unit)? = null
+        }
+    }
+    latestState.centerWgs = centerWgs
+    latestState.zoom = zoom
+    latestState.mapSource = mapSource
+    latestState.markers = mapMarkers
+    latestState.onMapTap = onMapTap
+    latestState.onDeviceTap = onDeviceTap
+
+    val bgColor = if (darkTheme) Color(0xFF16181C) else Color(0xFFF1F4F6)
+    val gridColor = if (darkTheme) Color(0xFF23272F) else Color(0xFFE3E8EC)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(bgColor)
+            .clipToBounds()
+            .onSizeChanged { viewportSize = it }
+            .pointerInput(tileSizePx) {
+                val touchSlop = viewConfig.touchSlop
+                val markerHitRadiusPx = 28.dp.toPx()
+                val doubleTapSlopPx = 48.dp.toPx()
+                var lastTapTime = 0L
+                var lastTapPos = Offset.Zero
+
+                awaitEachGesture {
+                    val firstDown = awaitFirstDown(requireUnconsumed = false)
+                    val downPos = firstDown.position
+                    var pastTouchSlop = false
+                    var isMultiTouch = false
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pressed = event.changes.count { it.pressed }
+                        if (pressed >= 2) isMultiTouch = true
+
+                        val zoomFactor = event.calculateZoom()
+                        val pan = event.calculatePan()
+                        val centroid = event.calculateCentroid(useCurrent = true)
+
+                        val movedDist = (event.changes.firstOrNull()?.position?.let {
+                            hypot((it.x - downPos.x).toDouble(), (it.y - downPos.y).toDouble()).toFloat()
+                        } ?: 0f)
+                        if (!pastTouchSlop && (isMultiTouch || abs(zoomFactor - 1f) > 0.01f || movedDist > touchSlop)) {
+                            pastTouchSlop = true
+                        }
+
+                        if (pastTouchSlop && (zoomFactor != 1f || pan != Offset.Zero)) {
+                            val src = latestState.mapSource
+                            val oldZoom = latestState.zoom
+                            val newZoom = (oldZoom + ln(zoomFactor.toDouble().coerceAtLeast(0.1)) / ln(2.0))
+                                .coerceIn(2.0, src.maxZoom.toDouble())
+                            val curCenterMap = src.toMapCoord(latestState.centerWgs)
+                            val (camWxOld, camWyOld) = MapProjection.latLonToWorldPx(
+                                curCenterMap.latitude,
+                                curCenterMap.longitude,
+                                oldZoom,
+                                tileSizePx
+                            )
+                            val vpW = viewportSize.width.toDouble()
+                            val vpH = viewportSize.height.toDouble()
+
+                            // Keep the world coordinate under the pinch centroid anchored, then apply pan
+                            val anchorOffsetX = if (centroid != Offset.Unspecified) centroid.x - vpW / 2.0 else 0.0
+                            val anchorOffsetY = if (centroid != Offset.Unspecified) centroid.y - vpH / 2.0 else 0.0
+                            val scaleRatio = 2.0.pow(newZoom - oldZoom)
+                            val anchorWxNew = (camWxOld + anchorOffsetX) * scaleRatio
+                            val anchorWyNew = (camWyOld + anchorOffsetY) * scaleRatio
+                            val newCamWx = anchorWxNew - anchorOffsetX - pan.x.toDouble()
+                            val newCamWy = anchorWyNew - anchorOffsetY - pan.y.toDouble()
+
+                            val nextMapCenter = MapProjection.worldPxToLatLon(newCamWx, newCamWy, newZoom, tileSizePx)
+                            val nextWgsCenter = src.fromMapCoord(nextMapCenter)
+                            latestState.centerWgs = nextWgsCenter
+                            latestState.zoom = newZoom
+                            centerWgs = nextWgsCenter
+                            zoom = newZoom
+
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        }
+
+                        if (pressed == 0) {
+                            if (!pastTouchSlop && !isMultiTouch) {
+                                val upPos = event.changes.firstOrNull()?.position ?: downPos
+                                val src = latestState.mapSource
+                                val curZoom = latestState.zoom
+                                val curCenterMap = src.toMapCoord(latestState.centerWgs)
+                                val (camWx, camWy) = MapProjection.latLonToWorldPx(
+                                    curCenterMap.latitude,
+                                    curCenterMap.longitude,
+                                    curZoom,
+                                    tileSizePx
+                                )
+
+                                // Check marker tap first (in reverse draw order)
+                                val tappedMarker = latestState.markers.asReversed().firstOrNull { marker ->
+                                    val (mx, my) = MapProjection.latLonToWorldPx(
+                                        marker.mapCoord.latitude,
+                                        marker.mapCoord.longitude,
+                                        curZoom,
+                                        tileSizePx
+                                    )
+                                    val sx = (viewportSize.width / 2.0 + (mx - camWx)).toFloat()
+                                    val sy = (viewportSize.height / 2.0 + (my - camWy)).toFloat()
+                                    hypot((upPos.x - sx).toDouble(), (upPos.y - sy).toDouble()) <= markerHitRadiusPx
+                                }
+
+                                if (tappedMarker != null && latestState.onDeviceTap != null) {
+                                    lastTapTime = 0L
+                                    latestState.onDeviceTap?.invoke(tappedMarker.teid)
+                                } else {
+                                    val mapTapCb = latestState.onMapTap
+                                    val now = System.currentTimeMillis()
+                                    val isDoubleTap = mapTapCb == null &&
+                                        (now - lastTapTime <= 280L) &&
+                                        hypot((upPos.x - lastTapPos.x).toDouble(), (upPos.y - lastTapPos.y).toDouble()) <= doubleTapSlopPx
+
+                                    if (isDoubleTap) {
+                                        lastTapTime = 0L
+                                        val nextZoom = (curZoom + 1.0).coerceAtMost(src.maxZoom.toDouble())
+                                        if (nextZoom > curZoom) {
+                                            val tapOffsetX = upPos.x - viewportSize.width / 2.0
+                                            val tapOffsetY = upPos.y - viewportSize.height / 2.0
+                                            val scale = 2.0.pow(nextZoom - curZoom)
+                                            val nextCamWx = (camWx + tapOffsetX) * scale - tapOffsetX
+                                            val nextCamWy = (camWy + tapOffsetY) * scale - tapOffsetY
+                                            val nextWgs = src.fromMapCoord(
+                                                MapProjection.worldPxToLatLon(nextCamWx, nextCamWy, nextZoom, tileSizePx)
+                                            )
+                                            centerWgs = nextWgs
+                                            zoom = nextZoom
+                                        }
+                                    } else {
+                                        lastTapTime = now
+                                        lastTapPos = upPos
+                                        if (mapTapCb != null) {
+                                            val tapWx = camWx + (upPos.x - viewportSize.width / 2.0)
+                                            val tapWy = camWy + (upPos.y - viewportSize.height / 2.0)
+                                            val tapMapCoord = MapProjection.worldPxToLatLon(tapWx, tapWy, curZoom, tileSizePx)
+                                            val tapWgs = src.fromMapCoord(tapMapCoord)
+                                            if (isValidMapCoordinate(tapWgs.latitude, tapWgs.longitude)) {
+                                                mapTapCb.invoke(tapWgs)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+    ) {
+        val statusOnlineText = markerStatus.ifBlank { if (markerOnline) "online" else "offline" }
+
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // Read invalidation counters so tile/icon completions redraw the canvas immediately
+            val tileTick = tileRevision
+            val iconTick = iconRevision
+            if (tileTick < 0 || iconTick < 0) return@Canvas
+            if (size.width <= 0f || size.height <= 0f) return@Canvas
+
+            val camMap = mapSource.toMapCoord(centerWgs)
+            val (camWx, camWy) = MapProjection.latLonToWorldPx(
+                camMap.latitude,
+                camMap.longitude,
+                zoom,
+                tileSizePx
+            )
+
+            fun toScreen(lat: Double, lon: Double): Offset {
+                val (wx, wy) = MapProjection.latLonToWorldPx(lat, lon, zoom, tileSizePx)
+                return Offset(
+                    x = (size.width / 2.0 + (wx - camWx)).toFloat(),
+                    y = (size.height / 2.0 + (wy - camWy)).toFloat()
+                )
             }
 
-            override fun onPageFinished(view: WebView, url: String) {
-                pageReady = true
-                applyLabels()
-                applyTileSource()
-                applyMapData(
-                    fitRoute = pendingHasContent,
-                    routeChanged = true,
-                    focusPrimary = false
-                )
-                if (pendingHasContent) {
-                    hasFitted = true
+            // 1. Subtle placeholder grid lines while tiles load
+            val tileSpan = tileSizePx * 2.0.pow(zoom - tileZ)
+            val offsetX = size.width / 2.0 - camWx
+            val offsetY = size.height / 2.0 - camWy
+            val gxStart = floor((-offsetX) / tileSpan).toInt()
+            val gxEnd = ceil((size.width - offsetX) / tileSpan).toInt()
+            val gyStart = max(0, floor((-offsetY) / tileSpan).toInt())
+            val gyEnd = min(nTiles, ceil((size.height - offsetY) / tileSpan).toInt())
+
+            for (gx in gxStart..gxEnd) {
+                val sx = (offsetX + gx * tileSpan).toFloat()
+                drawLine(gridColor, Offset(sx, 0f), Offset(sx, size.height), strokeWidth = 1f)
+            }
+            for (gy in gyStart..gyEnd) {
+                val sy = (offsetY + gy * tileSpan).toFloat()
+                drawLine(gridColor, Offset(0f, sy), Offset(size.width, sy), strokeWidth = 1f)
+            }
+
+            // 2. Render tile layers (base with parent-tile fallback, then optional overlays)
+            val activeLayers = layerSpecs.filter { tileZ in it.minZoom..it.maxZoom }
+            for (layer in activeLayers) {
+                for (ty in minTileY..maxTileY) {
+                    val dstTop = (offsetY + ty * tileSpan).roundToInt()
+                    val dstBottom = (offsetY + (ty + 1) * tileSpan).roundToInt()
+                    val dstH = (dstBottom - dstTop).coerceAtLeast(1)
+                    if (dstBottom <= 0 || dstTop >= size.height) continue
+
+                    for (rawTx in minTileX..maxTileX) {
+                        val dstLeft = (offsetX + rawTx * tileSpan).roundToInt()
+                        val dstRight = (offsetX + (rawTx + 1) * tileSpan).roundToInt()
+                        val dstW = (dstRight - dstLeft).coerceAtLeast(1)
+                        if (dstRight <= 0 || dstLeft >= size.width) continue
+
+                        val tx = Math.floorMod(rawTx, nTiles)
+                        val key = MapTileRepository.tileCacheKey(layer.id, tileZ, tx, ty)
+                        val bmp = MapTileRepository.getCachedTile(key)
+                        if (bmp != null) {
+                            drawImage(
+                                image = bmp,
+                                dstOffset = IntOffset(dstLeft, dstTop),
+                                dstSize = IntSize(dstW, dstH)
+                            )
+                        } else if (!layer.isOptionalOverlay && tileZ > 2) {
+                            // Parent tile quadrant fallback so zooming/panning never flashes blank
+                            val pKey = MapTileRepository.tileCacheKey(layer.id, tileZ - 1, tx shr 1, ty shr 1)
+                            val pBmp = MapTileRepository.getCachedTile(pKey)
+                            if (pBmp != null) {
+                                val halfW = pBmp.width / 2
+                                val halfH = pBmp.height / 2
+                                val srcX = if ((tx and 1) != 0) halfW else 0
+                                val srcY = if ((ty and 1) != 0) halfH else 0
+                                drawImage(
+                                    image = pBmp,
+                                    srcOffset = IntOffset(srcX, srcY),
+                                    srcSize = IntSize(halfW.coerceAtLeast(1), halfH.coerceAtLeast(1)),
+                                    dstOffset = IntOffset(dstLeft, dstTop),
+                                    dstSize = IntSize(dstW, dstH)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
-            override fun shouldOverrideUrlLoading(
-                view: WebView,
-                request: WebResourceRequest
-            ): Boolean = request.isForMainFrame && request.url.host != ASSET_HOST
+            // 3. Render saved geofences
+            val fenceStroke = 2.dp.toPx()
+            val fenceColor = Color(0xFF007DFF)
+            for (fence in mapFences) {
+                var labelPos: Offset? = null
+                if (fence.isPolygon && fence.verticesMap.size >= 3) {
+                    val pts = fence.verticesMap.map { toScreen(it.latitude, it.longitude) }
+                    val path = Path().apply {
+                        moveTo(pts[0].x, pts[0].y)
+                        for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+                        close()
+                    }
+                    drawPath(path, fenceColor.copy(alpha = 0.10f), style = Fill)
+                    drawPath(path, fenceColor.copy(alpha = 0.85f), style = Stroke(width = fenceStroke))
+                    labelPos = Offset(
+                        pts.sumOf { it.x.toDouble() }.toFloat() / pts.size,
+                        pts.sumOf { it.y.toDouble() }.toFloat() / pts.size
+                    )
+                } else if (!fence.isPolygon && fence.centerMap != null && fence.radiusMeters > 0) {
+                    val centerScreen = toScreen(fence.centerMap.latitude, fence.centerMap.longitude)
+                    val radiusPx = MapProjection.metersToPixels(
+                        fence.radiusMeters.toDouble(),
+                        fence.centerMap.latitude,
+                        zoom,
+                        tileSizePx
+                    ).toFloat().coerceAtLeast(4f)
+                    drawCircle(fenceColor.copy(alpha = 0.10f), radius = radiusPx, center = centerScreen)
+                    drawCircle(
+                        fenceColor.copy(alpha = 0.85f),
+                        radius = radiusPx,
+                        center = centerScreen,
+                        style = Stroke(width = fenceStroke)
+                    )
+                    labelPos = centerScreen
+                }
+                if (labelPos != null && fence.name.isNotBlank()) {
+                    drawPillLabel(
+                        textMeasurer = textMeasurer,
+                        text = fence.name,
+                        anchorCenter = labelPos,
+                        backgroundColor = Color.White.copy(alpha = 0.92f),
+                        textColor = Color(0xFF0055B3),
+                        borderColor = fenceColor.copy(alpha = 0.45f)
+                    )
+                }
+            }
+
+            // 4. Render active geofence circle & polygon editor overlay
+            val activeFenceColor = Color(0xFFE5484D)
+            if (normalizedRadius > 0 && currentMapPoint != null) {
+                val centerScreen = toScreen(currentMapPoint.latitude, currentMapPoint.longitude)
+                val radiusPx = MapProjection.metersToPixels(
+                    normalizedRadius.toDouble(),
+                    currentMapPoint.latitude,
+                    zoom,
+                    tileSizePx
+                ).toFloat().coerceAtLeast(4f)
+                drawCircle(activeFenceColor.copy(alpha = 0.12f), radius = radiusPx, center = centerScreen)
+                drawCircle(
+                    activeFenceColor.copy(alpha = 0.9f),
+                    radius = radiusPx,
+                    center = centerScreen,
+                    style = Stroke(width = fenceStroke)
+                )
+            }
+
+            if (mapPolygon.size >= 3) {
+                val pts = mapPolygon.map { toScreen(it.latitude, it.longitude) }
+                val path = Path().apply {
+                    moveTo(pts[0].x, pts[0].y)
+                    for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+                    close()
+                }
+                drawPath(path, activeFenceColor.copy(alpha = 0.12f), style = Fill)
+                drawPath(path, activeFenceColor.copy(alpha = 0.9f), style = Stroke(width = fenceStroke))
+            } else if (mapPolygon.size == 2) {
+                val p0 = toScreen(mapPolygon[0].latitude, mapPolygon[0].longitude)
+                val p1 = toScreen(mapPolygon[1].latitude, mapPolygon[1].longitude)
+                drawLine(
+                    color = activeFenceColor.copy(alpha = 0.9f),
+                    start = p0,
+                    end = p1,
+                    strokeWidth = fenceStroke,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))
+                )
+            }
+            for (v in mapPolygon) {
+                val pt = toScreen(v.latitude, v.longitude)
+                drawCircle(Color.White, radius = 6.dp.toPx(), center = pt)
+                drawCircle(activeFenceColor, radius = 6.dp.toPx(), center = pt, style = Stroke(width = 2.dp.toPx()))
+            }
+
+            // 5. Render route polylines + Start/End badges
+            if (mapPoints.size > 1) {
+                val routeStroke = 5.dp.toPx()
+                val screenPts = mapPoints.map { toScreen(it.latitude, it.longitude) }
+                var runColor = speedColor(routeSpeeds.getOrNull(0) ?: 0)
+                var runPath = Path().apply {
+                    moveTo(screenPts[0].x, screenPts[0].y)
+                    lineTo(screenPts[1].x, screenPts[1].y)
+                }
+                for (i in 2 until screenPts.size) {
+                    val segColor = speedColor(routeSpeeds.getOrNull(i - 1) ?: 0)
+                    if (segColor == runColor) {
+                        runPath.lineTo(screenPts[i].x, screenPts[i].y)
+                    } else {
+                        drawPath(
+                            path = runPath,
+                            color = runColor.copy(alpha = 0.92f),
+                            style = Stroke(width = routeStroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        )
+                        runColor = segColor
+                        runPath = Path().apply {
+                            moveTo(screenPts[i - 1].x, screenPts[i - 1].y)
+                            lineTo(screenPts[i].x, screenPts[i].y)
+                        }
+                    }
+                }
+                drawPath(
+                    path = runPath,
+                    color = runColor.copy(alpha = 0.92f),
+                    style = Stroke(width = routeStroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+
+                drawPillLabel(
+                    textMeasurer = textMeasurer,
+                    text = startLabel,
+                    anchorCenter = Offset(screenPts.first().x, screenPts.first().y - 18.dp.toPx()),
+                    backgroundColor = Color(0xFF19BE6B),
+                    textColor = Color.White,
+                    borderColor = null
+                )
+                drawPillLabel(
+                    textMeasurer = textMeasurer,
+                    text = endLabel,
+                    anchorCenter = Offset(screenPts.last().x, screenPts.last().y - 18.dp.toPx()),
+                    backgroundColor = Color(0xFFED4014),
+                    textColor = Color.White,
+                    borderColor = null
+                )
+            }
+
+            // 6. Render secondary device markers
+            for (device in mapMarkers) {
+                val pos = toScreen(device.mapCoord.latitude, device.mapCoord.longitude)
+                if (pos.x < -160f || pos.x > size.width + 160f || pos.y < -80f || pos.y > size.height + 80f) continue
+                drawDeviceMarker(
+                    center = pos,
+                    name = device.name,
+                    direction = device.direction,
+                    status = device.status,
+                    iconBitmap = MapTileRepository.getCachedIcon(device.iconUrl),
+                    textMeasurer = textMeasurer
+                )
+            }
+
+            // 7. Render primary device marker on top
+            if (currentMapPoint != null) {
+                val pos = toScreen(currentMapPoint.latitude, currentMapPoint.longitude)
+                drawDeviceMarker(
+                    center = pos,
+                    name = markerName,
+                    direction = markerDirection,
+                    status = statusOnlineText,
+                    iconBitmap = MapTileRepository.getCachedIcon(markerIconUrl),
+                    textMeasurer = textMeasurer
+                )
+            }
         }
 
-        loadDataWithBaseURL(
-            BASE_URL,
-            buildMapHtml(initialLabels),
-            "text/html",
-            "UTF-8",
-            null
+        if (failedBaseTiles >= 4 && loadedBaseTiles == 0) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = controlsTopPx.dp, start = 16.dp, end = 16.dp)
+                    .widthIn(max = 360.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                shadowElevation = 4.dp,
+                tonalElevation = 0.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = errorLabel,
+                        color = Color(0xFFA52332),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = {
+                            MapTileRepository.clearFailedTiles()
+                            failedBaseTiles = 0
+                            loadedBaseTiles = 0
+                            retryNonce++
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = HyperBlue)
+                    ) {
+                        Text(retryLabel, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun speedColor(speed: Int): Color = when {
+    speed < 20 -> Color(0xFF2D8CF0)
+    speed < 40 -> Color(0xFF5CADFF)
+    speed < 60 -> Color(0xFF19BE6B)
+    speed < 80 -> Color(0xFF99CC33)
+    speed < 100 -> Color(0xFFFF9900)
+    speed < 120 -> Color(0xFFED4014)
+    else -> Color(0xFF990033)
+}
+
+private fun statusMarkerColor(status: String): Color = when (status) {
+    "offline" -> Color(0xFF8B949E)
+    "moving" -> Color(0xFF1677FF)
+    "alarm" -> Color(0xFFDB3F44)
+    "sleep" -> Color(0xFFD48D18)
+    else -> Color(0xFF148047)
+}
+
+private fun DrawScope.drawDeviceMarker(
+    center: Offset,
+    name: String,
+    direction: Int,
+    status: String,
+    iconBitmap: ImageBitmap?,
+    textMeasurer: TextMeasurer
+) {
+    val radius = 14.dp.toPx()
+    val borderWidth = 2.dp.toPx()
+
+    // Soft drop shadow
+    drawCircle(
+        color = Color.Black.copy(alpha = 0.25f),
+        radius = radius + 1.5.dp.toPx(),
+        center = Offset(center.x, center.y + 1.5.dp.toPx())
+    )
+
+    // Status circle + white border
+    drawCircle(color = statusMarkerColor(status), radius = radius, center = center)
+    drawCircle(color = Color.White, radius = radius, center = center, style = Stroke(width = borderWidth))
+
+    // Rotated device icon or directional arrow
+    rotate(degrees = direction.toFloat(), pivot = center) {
+        if (iconBitmap != null) {
+            val iconSizePx = 18.dp.toPx().roundToInt().coerceAtLeast(1)
+            val clip = Path().apply {
+                addOval(
+                    androidx.compose.ui.geometry.Rect(
+                        center.x - iconSizePx / 2f,
+                        center.y - iconSizePx / 2f,
+                        center.x + iconSizePx / 2f,
+                        center.y + iconSizePx / 2f
+                    )
+                )
+            }
+            clipPath(clip) {
+                drawImage(
+                    image = iconBitmap,
+                    dstOffset = IntOffset(
+                        (center.x - iconSizePx / 2f).roundToInt(),
+                        (center.y - iconSizePx / 2f).roundToInt()
+                    ),
+                    dstSize = IntSize(iconSizePx, iconSizePx)
+                )
+            }
+        } else {
+            val tipY = center.y - 6.dp.toPx()
+            val baseY = center.y + 4.5.dp.toPx()
+            val halfW = 5.5.dp.toPx()
+            val arrowPath = Path().apply {
+                moveTo(center.x, tipY)
+                lineTo(center.x + halfW, baseY)
+                lineTo(center.x, center.y + 2.dp.toPx())
+                lineTo(center.x - halfW, baseY)
+                close()
+            }
+            drawPath(arrowPath, Color.White, style = Fill)
+        }
+    }
+
+    if (name.isNotBlank()) {
+        val style = TextStyle(
+            color = Color(0xFF202B36),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+        val layout = textMeasurer.measure(
+            text = name,
+            style = style,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            constraints = Constraints(maxWidth = 120.dp.toPx().roundToInt())
+        )
+        val padH = 6.dp.toPx()
+        val padV = 2.dp.toPx()
+        val pillLeft = center.x + radius + 4.dp.toPx()
+        val pillW = layout.size.width + padH * 2f
+        val pillH = layout.size.height + padV * 2f
+        val pillTop = center.y - pillH / 2f
+        val cr = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+
+        drawRoundRect(
+            color = Color.Black.copy(alpha = 0.14f),
+            topLeft = Offset(pillLeft, pillTop + 1.dp.toPx()),
+            size = Size(pillW, pillH),
+            cornerRadius = cr
+        )
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.95f),
+            topLeft = Offset(pillLeft, pillTop),
+            size = Size(pillW, pillH),
+            cornerRadius = cr
+        )
+        drawRoundRect(
+            color = Color(0xFFD8DFE3),
+            topLeft = Offset(pillLeft, pillTop),
+            size = Size(pillW, pillH),
+            cornerRadius = cr,
+            style = Stroke(width = 1.dp.toPx())
+        )
+        drawText(
+            textLayoutResult = layout,
+            topLeft = Offset(pillLeft + padH, pillTop + padV)
         )
     }
+}
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE ->
-                parent?.requestDisallowInterceptTouchEvent(true)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                parent?.requestDisallowInterceptTouchEvent(false)
-        }
-        return super.onTouchEvent(event)
+private fun DrawScope.drawPillLabel(
+    textMeasurer: TextMeasurer,
+    text: String,
+    anchorCenter: Offset,
+    backgroundColor: Color,
+    textColor: Color,
+    borderColor: Color?
+) {
+    val style = TextStyle(
+        color = textColor,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    val layout = textMeasurer.measure(
+        text = text,
+        style = style,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        constraints = Constraints(maxWidth = 140.dp.toPx().roundToInt())
+    )
+    val padH = 7.dp.toPx()
+    val padV = 2.dp.toPx()
+    val w = layout.size.width + padH * 2f
+    val h = layout.size.height + padV * 2f
+    val left = anchorCenter.x - w / 2f
+    val top = anchorCenter.y - h / 2f
+    val cr = CornerRadius(10.dp.toPx(), 10.dp.toPx())
+
+    drawRoundRect(
+        color = Color.Black.copy(alpha = 0.18f),
+        topLeft = Offset(left, top + 1.dp.toPx()),
+        size = Size(w, h),
+        cornerRadius = cr
+    )
+    drawRoundRect(
+        color = backgroundColor,
+        topLeft = Offset(left, top),
+        size = Size(w, h),
+        cornerRadius = cr
+    )
+    if (borderColor != null) {
+        drawRoundRect(
+            color = borderColor,
+            topLeft = Offset(left, top),
+            size = Size(w, h),
+            cornerRadius = cr,
+            style = Stroke(width = 1.dp.toPx())
+        )
     }
-
-    fun setOnMapTap(callback: ((CoordinateTransform.LatLng) -> Unit)?) {
-        onMapTap = callback
-    }
-
-    fun setOnDeviceTap(callback: ((String) -> Unit)?) {
-        onDeviceTap = callback
-    }
-
-    fun updateLabels(labels: Map<String, String>) {
-        val labelsJson = serializeLabelsJson(labels)
-        if (labelsJson == previousLabelsJson) return
-        previousLabelsJson = labelsJson
-        pendingLabelsJson = labelsJson
-        if (pageReady) {
-            applyLabels()
-        }
-    }
-
-    fun updateMap(
-        points: List<CoordinateTransform.LatLng>,
-        markerIndex: Int,
-        mapSource: MapSource,
-        satellite: Boolean,
-        traffic: Boolean,
-        circleRadiusMeters: Int,
-        markerName: String,
-        markerDirection: Int,
-        markerOnline: Boolean,
-        markerStatus: String,
-        markerIconUrl: String,
-        followMarker: Boolean,
-        autoCenter: Boolean,
-        focusRequest: String,
-        routeSpeeds: List<Int>,
-        otherMarkers: List<MapDeviceMarker>,
-        polygonPoints: List<CoordinateTransform.LatLng>,
-        fences: List<MapFenceOverlay>
-    ) {
-        val tileSourceChanged = mapSource != currentMapSource ||
-            satellite != currentSatellite ||
-            traffic != currentTraffic
-        currentMapSource = mapSource
-        currentSatellite = satellite
-        currentTraffic = traffic
-
-        val validPoints = points.filter { isValidMapCoordinate(it.latitude, it.longitude) }
-        val validMarkers = otherMarkers.filter { isValidMapCoordinate(it.latitude, it.longitude) }
-        val validPolygon = polygonPoints.filter { isValidMapCoordinate(it.latitude, it.longitude) }
-        val normalizedRadius = circleRadiusMeters.coerceAtLeast(0)
-
-        val routeJson = serializeMapPointsJson(validPoints, mapSource)
-        val index = markerIndex.coerceIn(0, (validPoints.size - 1).coerceAtLeast(0))
-        val otherJson = serializeDeviceMarkersJson(validMarkers, mapSource)
-        val polygonJson = serializeMapPointsJson(validPolygon, mapSource)
-        val fencesJson = serializeFencesJson(fences, mapSource)
-        val speedsJson = serializeSpeedsJson(routeSpeeds)
-
-        val payload = listOf(
-            mapSource.id,
-            satellite.toString(),
-            traffic.toString(),
-            routeJson,
-            index.toString(),
-            normalizedRadius.toString(),
-            markerName,
-            markerDirection.toString(),
-            markerOnline.toString(),
-            markerStatus,
-            markerIconUrl,
-            followMarker.toString(),
-            autoCenter.toString(),
-            focusRequest,
-            speedsJson,
-            otherJson,
-            polygonJson,
-            fencesJson
-        ).joinToString("\u001f")
-
-        if (payload == lastPayload) return
-        lastPayload = payload
-
-        val routeChanged = routeJson != previousRoute || speedsJson != previousSpeeds
-        val rawRouteChanged = validPoints != previousRawRoutePoints
-        val rawMarkersChanged = validMarkers != previousRawMarkers
-        val markersExpandedFromEmpty = previousRawMarkers.isEmpty() && validMarkers.isNotEmpty()
-        val focusChanged = focusRequest != previousFocusRequest
-        val radiusChanged = normalizedRadius != previousRawRadius
-        val polygonAppendedOne = validPolygon.size == previousRawPolygon.size + 1 &&
-            validPolygon.dropLast(1) == previousRawPolygon
-        val polygonResetOrReplaced = validPolygon != previousRawPolygon &&
-            !polygonAppendedOne &&
-            !(validPolygon.size + 1 == previousRawPolygon.size && previousRawPolygon.dropLast(1) == validPolygon)
-        val fenceChanged = radiusChanged || polygonResetOrReplaced || fences != previousRawFences
-
-        previousFocusRequest = focusRequest
-        previousRoute = routeJson
-        previousSpeeds = speedsJson
-        previousRawRoutePoints = validPoints
-        previousRawMarkers = validMarkers
-        previousRawPolygon = validPolygon
-        previousRawRadius = normalizedRadius
-        previousRawFences = fences
-
-        pendingJson = routeJson
-        pendingIndex = index
-        pendingRadius = normalizedRadius
-        pendingName = markerName
-        pendingDirection = markerDirection
-        pendingOnline = markerOnline
-        pendingStatus = markerStatus
-        pendingIconUrl = markerIconUrl
-        pendingFollowMarker = followMarker
-        pendingSpeeds = speedsJson
-        allowedTeids = validMarkers.map { it.teid }.toSet()
-        pendingOtherMarkers = otherJson
-        pendingPolygon = polygonJson
-        pendingFences = fencesJson
-        val hasContent = validPoints.isNotEmpty() || validMarkers.isNotEmpty() ||
-            validPolygon.isNotEmpty() || fences.isNotEmpty()
-        pendingHasContent = hasContent
-
-        if (pageReady) {
-            if (tileSourceChanged) {
-                applyTileSource()
-            }
-            val focusPrimary = hasFitted && focusChanged && !markersExpandedFromEmpty
-            val fitRoute = hasContent && (
-                !hasFitted ||
-                    (focusChanged && !focusPrimary) ||
-                    fenceChanged ||
-                    (autoCenter && (rawRouteChanged || rawMarkersChanged))
-                )
-            applyMapData(
-                fitRoute = fitRoute,
-                routeChanged = routeChanged,
-                focusPrimary = focusPrimary
-            )
-            if (hasContent) {
-                hasFitted = true
-            }
-        }
-    }
-
-    private fun applyLabels() {
-        val script = "if (window.setMapLabels) window.setMapLabels(" +
-            JSONObject.quote(pendingLabelsJson) + ");"
-        evaluateJavascript(script, null)
-    }
-
-    private fun applyTileSource() {
-        val script = "if (window.setTileSource) window.setTileSource(" +
-            JSONObject.quote(currentMapSource.id) + "," +
-            currentSatellite + "," +
-            currentTraffic + ");"
-        evaluateJavascript(script, null)
-    }
-
-    private fun applyMapData(
-        fitRoute: Boolean = true,
-        routeChanged: Boolean = true,
-        focusPrimary: Boolean = false
-    ) {
-        val script = "if (window.setMapData) window.setMapData(" +
-            JSONObject.quote(pendingJson) + "," +
-            pendingIndex + "," +
-            fitRoute + "," +
-            routeChanged + "," +
-            pendingRadius + "," +
-            JSONObject.quote(pendingName) + "," +
-            pendingDirection + "," +
-            pendingOnline + "," +
-            JSONObject.quote(pendingStatus) + "," +
-            JSONObject.quote(pendingIconUrl) + "," +
-            pendingFollowMarker + "," +
-            JSONObject.quote(pendingSpeeds) + "," +
-            JSONObject.quote(pendingOtherMarkers) + "," +
-            JSONObject.quote(pendingPolygon) + "," +
-            JSONObject.quote(pendingFences) + "," +
-            focusPrimary + ");"
-        evaluateJavascript(script, null)
-    }
-
-    private fun redactSecrets(text: String): String = text
-        .replace(BuildConfig.TIANMAP_KEY, "<redacted>")
-        .replace(BuildConfig.AMAP_WEB_KEY, "<redacted>")
-        .replace(BuildConfig.AMAP_SECURITY_CODE, "<redacted>")
-
-    private fun buildMapHtml(initialLabels: Map<String, String>): String {
-        val quotedLabels = JSONObject.quote(serializeLabelsJson(initialLabels))
-        val quotedTianmapKey = JSONObject.quote(BuildConfig.TIANMAP_KEY)
-        val quotedSourceId = JSONObject.quote(currentMapSource.id)
-        val initSat = currentSatellite
-        val initTraffic = currentTraffic
-        return """
-        <!doctype html>
-        <html>
-        <head>
-          <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-          <meta charset="utf-8">
-          <link rel="stylesheet" href="https://app.newsmy-nmgps.com/__assets__/leaflet.css">
-          <style>
-            html,body,#map{width:100%;height:100%;padding:0;margin:0;overflow:hidden;background:#f1f4f6}
-            #tile-error-banner{display:none;position:absolute;z-index:1000;top:${controlsTopPx}px;left:16px;right:16px;max-width:360px;margin:0 auto;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,0.96);color:#a52332;font:13px/1.35 sans-serif;box-shadow:0 2px 10px rgba(0,0,0,0.16);border:1px solid rgba(165,35,50,0.22)}
-            #tile-error-text{flex:1;min-width:0}
-            #tile-retry-btn{flex-shrink:0;border:0;border-radius:8px;background:#007dff;color:#fff;padding:6px 12px;font:600 12px sans-serif}
-            .device-marker-root{position:relative;width:28px;height:28px;overflow:visible}
-            .device-arrow{width:28px;height:28px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;border:2px solid #ffffff;border-radius:50%;background:#148047;color:#ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.35);font-size:14px;line-height:1}
-            .device-marker-root.offline .device-arrow{background:#8b949e}
-            .device-marker-root.moving .device-arrow{background:#1677ff}
-            .device-marker-root.alarm .device-arrow{background:#db3f44}
-            .device-marker-root.sleep .device-arrow{background:#d48d18}
-            .device-arrow-glyph{display:inline-block;transform-origin:center}
-            .device-arrow img{width:20px;height:20px;object-fit:contain;display:block;border-radius:50%;transform-origin:center}
-            .device-name{position:absolute;left:32px;top:50%;transform:translateY(-50%);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:rgba(255,255,255,0.95);color:#202b36;border:1px solid #d8dfe3;border-radius:4px;padding:2px 6px;font:12px/1.3 sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.18)}
-            .endpoint-anchor{width:0;height:0;overflow:visible}
-            .endpoint-pill{position:absolute;left:0;bottom:10px;transform:translateX(-50%);white-space:nowrap;padding:2px 7px;border-radius:10px;font:600 11px/1.3 sans-serif;color:#ffffff;box-shadow:0 1px 4px rgba(0,0,0,0.28)}
-            .endpoint-pill.start{background:#19be6b}
-            .endpoint-pill.end{background:#ed4014}
-          </style>
-          <script src="https://app.newsmy-nmgps.com/__assets__/leaflet.js"></script>
-        </head>
-        <body>
-          <div id="map"></div>
-          <div id="tile-error-banner">
-            <span id="tile-error-text"></span>
-            <button id="tile-retry-btn" type="button"></button>
-          </div>
-          <script>
-            (function(){
-              var labels = JSON.parse($quotedLabels);
-              var TIANMAP_KEY = $quotedTianmapKey;
-              var SOURCE_CRS = {
-                amap: 'GCJ02',
-                tencent: 'GCJ02',
-                tianmap: 'WGS84',
-                bing: 'GCJ02',
-                arcgis: 'WGS84',
-                osm: 'WGS84',
-                google: 'GCJ02'
-              };
-              var SOURCE_MAX_ZOOM = {
-                amap: 18,
-                tencent: 18,
-                tianmap: 18,
-                bing: 18,
-                arcgis: 18,
-                osm: 19,
-                google: 19
-              };
-
-              var PI_VAL = Math.PI, A_AXIS = 6378245.0, EE = 0.00669342162296594323;
-              function isOutOfChina(lat, lon) {
-                return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
-              }
-              function transformLat(x, y) {
-                var r = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
-                r += (20.0 * Math.sin(6.0 * x * PI_VAL) + 20.0 * Math.sin(2.0 * x * PI_VAL)) * 2.0 / 3.0;
-                r += (20.0 * Math.sin(y * PI_VAL) + 40.0 * Math.sin(y / 3.0 * PI_VAL)) * 2.0 / 3.0;
-                r += (160.0 * Math.sin(y / 12.0 * PI_VAL) + 320.0 * Math.sin(y * PI_VAL / 30.0)) * 2.0 / 3.0;
-                return r;
-              }
-              function transformLon(x, y) {
-                var r = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
-                r += (20.0 * Math.sin(6.0 * x * PI_VAL) + 20.0 * Math.sin(2.0 * x * PI_VAL)) * 2.0 / 3.0;
-                r += (20.0 * Math.sin(x * PI_VAL) + 40.0 * Math.sin(x / 3.0 * PI_VAL)) * 2.0 / 3.0;
-                r += (150.0 * Math.sin(x / 12.0 * PI_VAL) + 300.0 * Math.sin(x / 30.0 * PI_VAL)) * 2.0 / 3.0;
-                return r;
-              }
-              function calcDelta(lat, lon) {
-                var dLat = transformLat(lon - 105.0, lat - 35.0);
-                var dLon = transformLon(lon - 105.0, lat - 35.0);
-                var radLat = lat / 180.0 * PI_VAL;
-                var magic = Math.sin(radLat);
-                magic = 1 - EE * magic * magic;
-                var sqrtMagic = Math.sqrt(magic);
-                dLat = (dLat * 180.0) / ((A_AXIS * (1 - EE)) / (magic * sqrtMagic) * PI_VAL);
-                dLon = (dLon * 180.0) / (A_AXIS / sqrtMagic * Math.cos(radLat) * PI_VAL);
-                return { dLat: dLat, dLon: dLon };
-              }
-              function wgs84ToGcj02(lat, lon) {
-                if (isOutOfChina(lat, lon)) return { lat: lat, lon: lon };
-                var d = calcDelta(lat, lon);
-                return { lat: lat + d.dLat, lon: lon + d.dLon };
-              }
-              function gcj02ToWgs84(lat, lon) {
-                if (isOutOfChina(lat, lon)) return { lat: lat, lon: lon };
-                var d = calcDelta(lat, lon);
-                return { lat: lat - d.dLat, lon: lon - d.dLon };
-              }
-
-              var bannerEl = document.getElementById('tile-error-banner');
-              var errorTextEl = document.getElementById('tile-error-text');
-              var retryBtnEl = document.getElementById('tile-retry-btn');
-              function syncLabelTexts() {
-                if (errorTextEl) errorTextEl.textContent = labels.error || '';
-                if (retryBtnEl) retryBtnEl.textContent = labels.retry || 'Retry';
-              }
-              syncLabelTexts();
-
-              if (typeof L === 'undefined') {
-                if (bannerEl) bannerEl.style.display = 'flex';
-                return;
-              }
-
-              L.DomEvent.disableClickPropagation(bannerEl);
-              L.DomEvent.disableScrollPropagation(bannerEl);
-
-              var map = L.map('map', {
-                center: [35.86, 104.19],
-                zoom: 5,
-                minZoom: 2,
-                maxZoom: 18,
-                zoomControl: false,
-                attributionControl: false,
-                preferCanvas: true
-              });
-
-              var routeGroup = L.layerGroup().addTo(map);
-              var overlayGroup = L.layerGroup().addTo(map);
-
-              var activeTileLayers = [];
-              var currentSourceId = '';
-              var currentSatellite = false;
-              var currentTraffic = false;
-              var failedTiles = 0;
-              var loadedTiles = 0;
-
-              function showTileError() {
-                if (bannerEl) bannerEl.style.display = 'flex';
-              }
-              function hideTileError() {
-                if (bannerEl) bannerEl.style.display = 'none';
-              }
-              function onTileLoad() {
-                loadedTiles++;
-                hideTileError();
-              }
-              function onTileError() {
-                failedTiles++;
-                if (failedTiles >= 4 && loadedTiles === 0) {
-                  showTileError();
-                }
-              }
-
-              retryBtnEl.addEventListener('click', function(ev) {
-                L.DomEvent.stopPropagation(ev);
-                failedTiles = 0;
-                loadedTiles = 0;
-                hideTileError();
-                for (var i = 0; i < activeTileLayers.length; i++) {
-                  if (activeTileLayers[i].redraw) activeTileLayers[i].redraw();
-                }
-              });
-
-              var TencentTileLayer = L.TileLayer.extend({
-                initialize: function(urlFn, options) {
-                  this._urlFn = urlFn;
-                  L.TileLayer.prototype.initialize.call(this, '', options);
-                },
-                getTileUrl: function(coords) {
-                  var z = coords.z, x = coords.x, y = coords.y;
-                  var tmsY = Math.pow(2, z) - 1 - y;
-                  var sub = Math.abs(x + y) % 4;
-                  return this._urlFn(z, x, y, tmsY, sub);
-                }
-              });
-
-              var BingTileLayer = L.TileLayer.extend({
-                initialize: function(urlFn, options) {
-                  this._urlFn = urlFn;
-                  L.TileLayer.prototype.initialize.call(this, '', options);
-                },
-                getTileUrl: function(coords) {
-                  var z = coords.z, x = coords.x, y = coords.y, quad = '';
-                  for (var i = z; i > 0; i--) {
-                    var digit = 0, mask = 1 << (i - 1);
-                    if ((x & mask) !== 0) digit++;
-                    if ((y & mask) !== 0) digit += 2;
-                    quad += digit;
-                  }
-                  var sub = Math.abs(x + y) % 4;
-                  return this._urlFn(quad, sub);
-                }
-              });
-
-              function buildTileLayers(sourceId, satellite, traffic) {
-                var layers = [];
-                if (sourceId === 'tencent') {
-                  if (satellite) {
-                    layers.push(new TencentTileLayer(function(z, x, y, tmsY, sub) {
-                      return 'https://p' + sub + '.map.gtimg.com/sateTiles/' + z + '/' + Math.floor(x / 16) + '/' + Math.floor(tmsY / 16) + '/' + x + '_' + tmsY + '.jpg';
-                    }, { maxZoom: 18, minZoom: 2, zIndex: 1 }));
-                    layers.push(new TencentTileLayer(function(z, x, y, tmsY, sub) {
-                      return 'https://rt' + sub + '.map.gtimg.com/tile?z=' + z + '&x=' + x + '&y=' + tmsY + '&styleid=2&version=297';
-                    }, { maxZoom: 18, minZoom: 2, zIndex: 2 }));
-                  } else {
-                    layers.push(new TencentTileLayer(function(z, x, y, tmsY, sub) {
-                      return 'https://rt' + sub + '.map.gtimg.com/realtimerender?z=' + z + '&x=' + x + '&y=' + tmsY + '&type=vector&style=0';
-                    }, { maxZoom: 18, minZoom: 2, zIndex: 1 }));
-                  }
-                } else if (sourceId === 'tianmap') {
-                  var tk = encodeURIComponent(TIANMAP_KEY || '');
-                  var baseLayer = satellite ? 'img' : 'vec';
-                  var labelLayer = satellite ? 'cia' : 'cva';
-                  layers.push(L.tileLayer('https://t{s}.tianditu.gov.cn/' + baseLayer + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + baseLayer + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=' + tk, {
-                    subdomains: '01234567', maxZoom: 18, minZoom: 2, zIndex: 1
-                  }));
-                  layers.push(L.tileLayer('https://t{s}.tianditu.gov.cn/' + labelLayer + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + labelLayer + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=' + tk, {
-                    subdomains: '01234567', maxZoom: 18, minZoom: 2, zIndex: 2
-                  }));
-                } else if (sourceId === 'bing') {
-                  if (satellite) {
-                    layers.push(new BingTileLayer(function(quad, sub) {
-                      return 'https://ecn.t' + sub + '.tiles.virtualearth.net/tiles/h' + quad + '.jpeg?g=9675&mkt=zh-cn';
-                    }, { maxZoom: 18, minZoom: 2, zIndex: 1 }));
-                  } else {
-                    layers.push(new BingTileLayer(function(quad, sub) {
-                      return 'https://r' + sub + '.tiles.ditu.live.com/tiles/r' + quad + '.png?g=100&mkt=zh-cn';
-                    }, { maxZoom: 18, minZoom: 2, zIndex: 1 }));
-                  }
-                } else if (sourceId === 'arcgis') {
-                  if (satellite) {
-                    layers.push(L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-                      maxZoom: 18, minZoom: 2, zIndex: 1
-                    }));
-                    layers.push(L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-                      maxZoom: 18, minZoom: 2, zIndex: 2
-                    }));
-                  } else {
-                    layers.push(L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
-                      maxZoom: 18, minZoom: 2, zIndex: 1
-                    }));
-                  }
-                } else if (sourceId === 'osm') {
-                  layers.push(L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    maxZoom: 19, minZoom: 2, zIndex: 1
-                  }));
-                } else if (sourceId === 'google') {
-                  var lyrs = satellite ? 'y' : 'm';
-                  layers.push(L.tileLayer('https://mt{s}.google.com/vt/lyrs=' + lyrs + '&hl=zh-CN&gl=cn&x={x}&y={y}&z={z}', {
-                    subdomains: '0123', maxZoom: 19, minZoom: 2, zIndex: 1
-                  }));
-                } else {
-                  if (satellite) {
-                    layers.push(L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
-                      subdomains: '1234', maxZoom: 18, minZoom: 2, zIndex: 1
-                    }));
-                    layers.push(L.tileLayer('https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=8&x={x}&y={y}&z={z}&scl=2', {
-                      subdomains: '1234', maxZoom: 18, minZoom: 2, zIndex: 2
-                    }));
-                  } else {
-                    layers.push(L.tileLayer('https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x={x}&y={y}&z={z}&scl=2', {
-                      subdomains: '1234', maxZoom: 18, minZoom: 2, zIndex: 1
-                    }));
-                  }
-                  if (traffic) {
-                    layers.push(L.tileLayer('https://tm.amap.com/trafficengine/mapabc/traffictile?v=1.0&t=1&x={x}&y={y}&z={z}', {
-                      maxZoom: 18, minZoom: 2, zIndex: 10
-                    }));
-                  }
-                }
-                return layers;
-              }
-
-              window.setTileSource = function(sourceId, satellite, traffic) {
-                sourceId = sourceId || 'amap';
-                satellite = !!satellite;
-                traffic = !!traffic;
-                if (sourceId === currentSourceId && satellite === currentSatellite && traffic === currentTraffic && activeTileLayers.length > 0) {
-                  return;
-                }
-                var prevCrs = SOURCE_CRS[currentSourceId] || 'GCJ02';
-                var nextCrs = SOURCE_CRS[sourceId] || 'GCJ02';
-                if (currentSourceId && prevCrs !== nextCrs) {
-                  var c = map.getCenter();
-                  var shifted = nextCrs === 'WGS84' ? gcj02ToWgs84(c.lat, c.lng) : wgs84ToGcj02(c.lat, c.lng);
-                  map.setView([shifted.lat, shifted.lng], map.getZoom(), { animate: false });
-                }
-                for (var i = 0; i < activeTileLayers.length; i++) {
-                  activeTileLayers[i].off('tileload', onTileLoad);
-                  activeTileLayers[i].off('tileerror', onTileError);
-                  map.removeLayer(activeTileLayers[i]);
-                }
-                activeTileLayers = [];
-                currentSourceId = sourceId;
-                currentSatellite = satellite;
-                currentTraffic = traffic;
-                failedTiles = 0;
-                loadedTiles = 0;
-                hideTileError();
-
-                map.setMaxZoom(SOURCE_MAX_ZOOM[sourceId] || 18);
-                var nextLayers = buildTileLayers(sourceId, satellite, traffic);
-                for (var j = 0; j < nextLayers.length; j++) {
-                  nextLayers[j].on('tileload', onTileLoad);
-                  nextLayers[j].on('tileerror', onTileError);
-                  nextLayers[j].addTo(map);
-                  activeTileLayers.push(nextLayers[j]);
-                }
-              };
-
-              window.setTileSource($quotedSourceId, $initSat, $initTraffic);
-
-              if (typeof ResizeObserver !== 'undefined') {
-                new ResizeObserver(function() { map.invalidateSize(false); }).observe(document.getElementById('map'));
-              }
-              window.addEventListener('resize', function() { map.invalidateSize(false); });
-              setTimeout(function() { map.invalidateSize(false); }, 150);
-              setTimeout(function() { map.invalidateSize(false); }, 500);
-
-              map.on('click', function(event) {
-                if (window.NativeMap && event && event.latlng) {
-                  NativeMap.onMapTap(event.latlng.lng, event.latlng.lat);
-                }
-              });
-
-              function speedColor(speed) {
-                var s = Number(speed || 0);
-                if (s < 20) return '#2d8cf0';
-                if (s < 40) return '#5cadff';
-                if (s < 60) return '#19be6b';
-                if (s < 80) return '#99CC33';
-                if (s < 100) return '#ff9900';
-                if (s < 120) return '#ed4014';
-                return '#990033';
-              }
-
-              function createDeviceIcon(name, direction, status, iconUrl) {
-                var root = document.createElement('div');
-                root.className = 'device-marker-root ' + (status || 'online');
-                var arrow = document.createElement('div');
-                arrow.className = 'device-arrow';
-                var rot = 'rotate(' + Number(direction || 0) + 'deg)';
-                var fallbackGlyph = function() {
-                  arrow.textContent = '';
-                  var glyph = document.createElement('span');
-                  glyph.className = 'device-arrow-glyph';
-                  glyph.textContent = '▲';
-                  glyph.style.transform = rot;
-                  arrow.appendChild(glyph);
-                };
-                if (iconUrl) {
-                  var img = document.createElement('img');
-                  img.src = iconUrl;
-                  img.style.transform = rot;
-                  img.onerror = fallbackGlyph;
-                  arrow.appendChild(img);
-                } else {
-                  fallbackGlyph();
-                }
-                root.appendChild(arrow);
-                if (name) {
-                  var title = document.createElement('span');
-                  title.className = 'device-name';
-                  title.textContent = name;
-                  root.appendChild(title);
-                }
-                return L.divIcon({
-                  className: '',
-                  html: root,
-                  iconSize: [28, 28],
-                  iconAnchor: [14, 14]
-                });
-              }
-
-              function createEndpointIcon(text, isEnd) {
-                var pill = document.createElement('span');
-                pill.className = 'endpoint-pill ' + (isEnd ? 'end' : 'start');
-                pill.textContent = text;
-                return L.divIcon({
-                  className: 'endpoint-anchor',
-                  html: pill,
-                  iconSize: [0, 0],
-                  iconAnchor: [0, 0]
-                });
-              }
-
-              var endMarkerRefs = [];
-              function refreshEndpointLabels() {
-                if (endMarkerRefs.length === 2) {
-                  endMarkerRefs[0].setIcon(createEndpointIcon(labels.start || 'Start', false));
-                  endMarkerRefs[1].setIcon(createEndpointIcon(labels.end || 'End', true));
-                }
-              }
-
-              window.setMapLabels = function(labelsJson) {
-                try {
-                  labels = JSON.parse(labelsJson || '{}');
-                  syncLabelTexts();
-                  refreshEndpointLabels();
-                } catch (e) {}
-              };
-
-              function isValidPoint(p) {
-                return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) &&
-                  p.lat >= -85 && p.lat <= 85 && p.lon >= -180 && p.lon <= 180;
-              }
-
-              function extendBoundsWithLatLng(bounds, lat, lon) {
-                bounds.extend([lat, lon]);
-              }
-
-              window.setMapData = function(
-                serialized,
-                index,
-                fitRoute,
-                routeChanged,
-                radius,
-                name,
-                direction,
-                online,
-                status,
-                iconUrl,
-                followMarker,
-                speedsJson,
-                otherJson,
-                polygonJson,
-                fencesJson,
-                focusPrimary
-              ) {
-                map.invalidateSize(false);
-                var points = JSON.parse(serialized || '[]').filter(isValidPoint);
-                var speeds = JSON.parse(speedsJson || '[]');
-                var others = JSON.parse(otherJson || '[]').filter(isValidPoint);
-                var vertices = JSON.parse(polygonJson || '[]').filter(isValidPoint);
-                var fences = JSON.parse(fencesJson || '[]');
-
-                overlayGroup.clearLayers();
-
-                if (routeChanged) {
-                  routeGroup.clearLayers();
-                  endMarkerRefs = [];
-                  if (points.length > 1) {
-                    var runColor = speedColor(speeds[0]);
-                    var runCoords = [[points[0].lat, points[0].lon], [points[1].lat, points[1].lon]];
-                    for (var i = 2; i < points.length; i++) {
-                      var segColor = speedColor(speeds[i - 1]);
-                      if (segColor === runColor) {
-                        runCoords.push([points[i].lat, points[i].lon]);
-                      } else {
-                        L.polyline(runCoords, { color: runColor, weight: 5, opacity: 0.9 }).addTo(routeGroup);
-                        runColor = segColor;
-                        runCoords = [[points[i - 1].lat, points[i - 1].lon], [points[i].lat, points[i].lon]];
-                      }
-                    }
-                    L.polyline(runCoords, { color: runColor, weight: 5, opacity: 0.9 }).addTo(routeGroup);
-
-                    var startPoint = points[0];
-                    var endPoint = points[points.length - 1];
-                    var startMarker = L.marker([startPoint.lat, startPoint.lon], {
-                      icon: createEndpointIcon(labels.start || 'Start', false),
-                      interactive: false
-                    }).addTo(routeGroup);
-                    var endMarker = L.marker([endPoint.lat, endPoint.lon], {
-                      icon: createEndpointIcon(labels.end || 'End', true),
-                      interactive: false
-                    }).addTo(routeGroup);
-                    endMarkerRefs = [startMarker, endMarker];
-                  }
-                }
-
-                var bounds = L.latLngBounds([]);
-                for (var pIdx = 0; pIdx < points.length; pIdx++) {
-                  extendBoundsWithLatLng(bounds, points[pIdx].lat, points[pIdx].lon);
-                }
-
-                var current = points.length > 0 ? points[Math.max(0, Math.min(index, points.length - 1))] : null;
-                if (current) {
-                  L.marker([current.lat, current.lon], {
-                    icon: createDeviceIcon(name, direction, status || (online ? 'online' : 'offline'), iconUrl),
-                    zIndexOffset: 500,
-                    interactive: false
-                  }).addTo(overlayGroup);
-                }
-
-                for (var dIdx = 0; dIdx < others.length; dIdx++) {
-                  (function(device) {
-                    extendBoundsWithLatLng(bounds, device.lat, device.lon);
-                    var item = L.marker([device.lat, device.lon], {
-                      icon: createDeviceIcon(device.name || device.teid, device.direction, device.status || 'offline', device.iconUrl),
-                      bubblingMouseEvents: false
-                    });
-                    item.on('click', function(ev) {
-                      L.DomEvent.stopPropagation(ev);
-                      if (ev.originalEvent && ev.originalEvent.stopPropagation) {
-                        ev.originalEvent.stopPropagation();
-                      }
-                      if (window.NativeMap) NativeMap.onDeviceTap(device.teid);
-                    });
-                    item.addTo(overlayGroup);
-                  })(others[dIdx]);
-                }
-
-                if (radius > 0 && current) {
-                  L.circle([current.lat, current.lon], {
-                    radius: radius,
-                    color: '#e5484d',
-                    weight: 2,
-                    opacity: 0.9,
-                    fillColor: '#e5484d',
-                    fillOpacity: 0.12,
-                    interactive: false
-                  }).addTo(overlayGroup);
-                  bounds.extend(L.latLng(current.lat, current.lon).toBounds(radius * 2));
-                }
-
-                if (vertices.length >= 3) {
-                  L.polygon(vertices.map(function(v) { return [v.lat, v.lon]; }), {
-                    color: '#e5484d',
-                    weight: 2,
-                    opacity: 0.9,
-                    fillColor: '#e5484d',
-                    fillOpacity: 0.12,
-                    interactive: false
-                  }).addTo(overlayGroup);
-                } else if (vertices.length === 2) {
-                  L.polyline([[vertices[0].lat, vertices[0].lon], [vertices[1].lat, vertices[1].lon]], {
-                    color: '#e5484d',
-                    weight: 2,
-                    opacity: 0.9,
-                    dashArray: '6,4',
-                    interactive: false
-                  }).addTo(overlayGroup);
-                }
-                for (var vIdx = 0; vIdx < vertices.length; vIdx++) {
-                  var vertex = vertices[vIdx];
-                  extendBoundsWithLatLng(bounds, vertex.lat, vertex.lon);
-                  L.circleMarker([vertex.lat, vertex.lon], {
-                    radius: 6,
-                    color: '#e5484d',
-                    weight: 2,
-                    fillColor: '#ffffff',
-                    fillOpacity: 1,
-                    interactive: false
-                  }).addTo(overlayGroup);
-                }
-
-                for (var fIdx = 0; fIdx < fences.length; fIdx++) {
-                  var fence = fences[fIdx];
-                  var fenceLayer = null;
-                  if (fence.isPolygon && Array.isArray(fence.vertices)) {
-                    var fv = fence.vertices.filter(isValidPoint);
-                    if (fv.length >= 3) {
-                      fenceLayer = L.polygon(fv.map(function(v) { return [v.lat, v.lon]; }), {
-                        color: '#007dff',
-                        weight: 2,
-                        opacity: 0.85,
-                        fillColor: '#007dff',
-                        fillOpacity: 0.10,
-                        bubblingMouseEvents: false
-                      }).addTo(overlayGroup);
-                      for (var fvIdx = 0; fvIdx < fv.length; fvIdx++) {
-                        extendBoundsWithLatLng(bounds, fv[fvIdx].lat, fv[fvIdx].lon);
-                      }
-                    }
-                  } else if (!fence.isPolygon && isValidPoint(fence.center) && Number(fence.radiusMeters) > 0) {
-                    var fc = fence.center;
-                    var fr = Number(fence.radiusMeters);
-                    fenceLayer = L.circle([fc.lat, fc.lon], {
-                      radius: fr,
-                      color: '#007dff',
-                      weight: 2,
-                      opacity: 0.85,
-                      fillColor: '#007dff',
-                      fillOpacity: 0.10,
-                      bubblingMouseEvents: false
-                    }).addTo(overlayGroup);
-                    bounds.extend(L.latLng(fc.lat, fc.lon).toBounds(fr * 2));
-                  }
-                  if (fenceLayer && fence.name) {
-                    var tipEl = document.createElement('span');
-                    tipEl.textContent = fence.name;
-                    fenceLayer.bindTooltip(tipEl, { direction: 'center', sticky: true });
-                  }
-                }
-
-                if (focusPrimary && current) {
-                  map.setView([current.lat, current.lon], Math.max(map.getZoom() || 0, 15));
-                } else if (fitRoute && bounds.isValid()) {
-                  var sw = bounds.getSouthWest();
-                  var ne = bounds.getNorthEast();
-                  var isZeroArea = Math.abs(sw.lat - ne.lat) < 1e-7 && Math.abs(sw.lng - ne.lng) < 1e-7;
-                  if (isZeroArea) {
-                    map.setView([sw.lat, sw.lng], Math.max(map.getZoom() || 0, 15));
-                  } else {
-                    var sz = map.getSize();
-                    var padX = Math.min(36, Math.floor(sz.x * 0.1));
-                    var padTop = Math.min(48, Math.floor(sz.y * 0.12));
-                    var padBottom = Math.min(180, Math.floor(sz.y * 0.25));
-                    map.fitBounds(bounds, {
-                      paddingTopLeft: [padX, padTop],
-                      paddingBottomRight: [padX, padBottom],
-                      maxZoom: 17
-                    });
-                  }
-                } else if (current && followMarker && !map.getBounds().contains(L.latLng(current.lat, current.lon))) {
-                  map.panTo([current.lat, current.lon]);
-                }
-              };
-            })();
-          </script>
-        </body>
-        </html>
-        """.trimIndent()
-    }
-
-    private companion object {
-        const val TAG = "AmapJsMap"
-        const val ASSET_HOST = "app.newsmy-nmgps.com"
-        const val BASE_URL = "https://app.newsmy-nmgps.com/"
-    }
+    drawText(
+        textLayoutResult = layout,
+        topLeft = Offset(left + padH, top + padV)
+    )
 }

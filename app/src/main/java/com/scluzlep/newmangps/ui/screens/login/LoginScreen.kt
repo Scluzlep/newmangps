@@ -8,10 +8,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -101,7 +98,7 @@ fun LoginScreen(
                     else language.text("AccountUsername", "账号用户名")) },
                 leadingIcon = {
                     Icon(
-                        imageVector = if (selectedTab == 0) Icons.Default.Numbers else Icons.Default.Person,
+                        imageVector = if (selectedTab == 0) AppIcons.Numbers else Icons.Default.Person,
                         contentDescription = null,
                         tint = HyperBlue
                     )
@@ -130,7 +127,7 @@ fun LoginScreen(
                 trailingIcon = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
-                            imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            imageVector = if (passwordVisible) AppIcons.Visibility else AppIcons.VisibilityOff,
                             contentDescription = null
                         )
                     }

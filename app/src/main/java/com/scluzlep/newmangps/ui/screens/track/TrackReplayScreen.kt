@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -112,7 +112,7 @@ fun TrackReplayScreen(
                 },
                 actions = {
                     IconButton(onClick = { showLayerDialog = true }) {
-                        Icon(Icons.Default.Layers, contentDescription = language.text("MapSource", "地图源"))
+                        Icon(AppIcons.Layers, contentDescription = language.text("MapSource", "地图源"))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -235,7 +235,7 @@ fun TrackReplayScreen(
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                imageVector = if (isPlaying) AppIcons.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isPlaying) language.text("Pause", "暂停") else language.text("Play", "播放")
                             )
                         }

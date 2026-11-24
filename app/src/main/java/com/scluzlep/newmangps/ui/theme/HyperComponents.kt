@@ -9,10 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -94,7 +90,7 @@ fun HyperCard(
             ),
         shape = HyperCardShape,
         color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp
+        tonalElevation = 0.dp
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
@@ -119,9 +115,9 @@ fun HyperBatteryPill(
     }
 
     val icon: ImageVector = when {
-        isCharging -> Icons.Default.BatteryChargingFull
-        percent > 20 -> Icons.Default.BatteryFull
-        else -> Icons.Default.BatteryAlert
+        isCharging -> AppIcons.BatteryChargingFull
+        percent > 20 -> AppIcons.BatteryFull
+        else -> AppIcons.BatteryAlert
     }
 
     Row(

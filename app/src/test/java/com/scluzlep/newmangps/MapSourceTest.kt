@@ -4,15 +4,11 @@ import com.scluzlep.newmangps.data.MapCoordSystem
 import com.scluzlep.newmangps.data.MapSource
 import com.scluzlep.newmangps.data.api.AmapPlace
 import com.scluzlep.newmangps.data.util.CoordinateTransform
-import com.scluzlep.newmangps.ui.screens.map.MapDeviceMarker
-import com.scluzlep.newmangps.ui.screens.map.MapFenceOverlay
-import com.scluzlep.newmangps.ui.screens.map.serializeDeviceMarkersJson
-import com.scluzlep.newmangps.ui.screens.map.serializeFencesJson
-import com.scluzlep.newmangps.ui.screens.map.serializeLabelsJson
-import com.scluzlep.newmangps.ui.screens.map.serializeMapPointsJson
-import com.scluzlep.newmangps.ui.screens.map.serializeSpeedsJson
-import org.json.JSONArray
-import org.json.JSONObject
+import com.scluzlep.newmangps.ui.screens.map.MapProjection
+import com.scluzlep.newmangps.ui.screens.map.bingQuadKey
+import com.scluzlep.newmangps.ui.screens.map.buildTileLayerSpecs
+import com.scluzlep.newmangps.ui.screens.map.isValidMapCoordinate
+import com.scluzlep.newmangps.ui.screens.map.tmsY
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -115,106 +111,139 @@ class MapSourceTest {
     }
 
     @Test
-    fun mapJsonSerializationUsesExpectedKeysAndFiltersInvalidCoords() {
-        val wgsPoint = CoordinateTransform.LatLng(31.2304, 121.4737)
-        val invalidNan = CoordinateTransform.LatLng(Double.NaN, 121.0)
-        val invalidLat = CoordinateTransform.LatLng(89.0, 121.0)
-
-        val pointsJson = JSONArray(
-            serializeMapPointsJson(listOf(wgsPoint, invalidNan, invalidLat), MapSource.OSM)
+    fun mercatorProjectionRoundTripsAndMetersScaleCorrectly() {
+        val samples = listOf(
+            CoordinateTransform.LatLng(0.0, 0.0),
+            CoordinateTransform.LatLng(39.9042, 116.4074),
+            CoordinateTransform.LatLng(-33.8688, 151.2093),
+            CoordinateTransform.LatLng(64.1466, -21.9426)
         )
-        assertEquals(1, pointsJson.length())
-        val pt = pointsJson.getJSONObject(0)
-        assertTrue(pt.has("lon"))
-        assertTrue(pt.has("lat"))
-        assertFalse(pt.has("longitude"))
-        assertFalse(pt.has("latitude"))
-        assertEquals(wgsPoint.longitude, pt.getDouble("lon"), 1e-9)
-        assertEquals(wgsPoint.latitude, pt.getDouble("lat"), 1e-9)
+        val tileSizePx = 768.0 // 3x density
+        for (zoom in listOf(2.0, 5.5, 15.0, 18.25)) {
+            for (pt in samples) {
+                val (wx, wy) = MapProjection.latLonToWorldPx(pt.latitude, pt.longitude, zoom, tileSizePx)
+                val restored = MapProjection.worldPxToLatLon(wx, wy, zoom, tileSizePx)
+                assertEquals(pt.latitude, restored.latitude, 1e-6)
+                assertEquals(pt.longitude, restored.longitude, 1e-6)
+            }
+        }
 
-        val amapPointsJson = JSONArray(
-            serializeMapPointsJson(listOf(wgsPoint), MapSource.AMAP)
+        val z15 = MapProjection.metersToPixels(500.0, 39.9042, 15.0, tileSizePx)
+        val z16 = MapProjection.metersToPixels(500.0, 39.9042, 16.0, tileSizePx)
+        assertTrue(z15 > 0.0)
+        assertEquals(z15 * 2.0, z16, 1e-6)
+        assertEquals(0.0, MapProjection.metersToPixels(-10.0, 0.0, 10.0, tileSizePx), 1e-9)
+    }
+
+    @Test
+    fun fitBoundsZoomHandlesSinglePointMultiPointAndPadding() {
+        val tileSizePx = 768.0
+        val (singleCenter, singleZoom) = MapProjection.fitBoundsZoom(
+            minLat = 39.9042,
+            maxLat = 39.9042,
+            minLon = 116.4074,
+            maxLon = 116.4074,
+            viewportWidthPx = 1080.0,
+            viewportHeightPx = 1800.0,
+            tileSizePx = tileSizePx,
+            currentZoom = 5.0
         )
-        val amapPt = amapPointsJson.getJSONObject(0)
-        val expectedGcj = MapSource.AMAP.toMapCoord(wgsPoint)
-        assertEquals(expectedGcj.longitude, amapPt.getDouble("lon"), 1e-9)
-        assertEquals(expectedGcj.latitude, amapPt.getDouble("lat"), 1e-9)
+        assertEquals(39.9042, singleCenter.latitude, 1e-6)
+        assertEquals(116.4074, singleCenter.longitude, 1e-6)
+        assertEquals(15.0, singleZoom, 1e-6)
 
-        val markersJson = JSONArray(
-            serializeDeviceMarkersJson(
-                listOf(
-                    MapDeviceMarker(
-                        teid = "861000000000001",
-                        name = "Car 1",
-                        longitude = wgsPoint.longitude,
-                        latitude = wgsPoint.latitude,
-                        direction = 90,
-                        status = "moving",
-                        iconUrl = "https://example.com/car.png"
-                    ),
-                    MapDeviceMarker(
-                        teid = "bad",
-                        name = "Invalid",
-                        longitude = Double.POSITIVE_INFINITY,
-                        latitude = 30.0,
-                        direction = 0,
-                        status = "offline"
-                    )
-                ),
-                MapSource.TIANMAP
-            )
+        val (multiCenter, multiZoom) = MapProjection.fitBoundsZoom(
+            minLat = 39.85,
+            maxLat = 39.95,
+            minLon = 116.30,
+            maxLon = 116.50,
+            viewportWidthPx = 1080.0,
+            viewportHeightPx = 1800.0,
+            padLeft = 60.0,
+            padTop = 200.0,
+            padRight = 60.0,
+            padBottom = 400.0,
+            tileSizePx = tileSizePx,
+            currentZoom = 5.0
         )
-        assertEquals(1, markersJson.length())
-        val markerObj = markersJson.getJSONObject(0)
-        assertEquals("861000000000001", markerObj.getString("teid"))
-        assertEquals("Car 1", markerObj.getString("name"))
-        assertEquals(wgsPoint.longitude, markerObj.getDouble("lon"), 1e-9)
-        assertEquals(wgsPoint.latitude, markerObj.getDouble("lat"), 1e-9)
-        assertEquals(90, markerObj.getInt("direction"))
-        assertEquals("moving", markerObj.getString("status"))
-        assertEquals("https://example.com/car.png", markerObj.getString("iconUrl"))
-
-        val fencesJson = JSONArray(
-            serializeFencesJson(
-                listOf(
-                    MapFenceOverlay(
-                        name = "Home",
-                        isPolygon = false,
-                        center = wgsPoint,
-                        radiusMeters = 300
-                    ),
-                    MapFenceOverlay(
-                        name = "Zone",
-                        isPolygon = true,
-                        vertices = listOf(
-                            wgsPoint,
-                            CoordinateTransform.LatLng(31.2314, 121.4747),
-                            CoordinateTransform.LatLng(31.2294, 121.4757)
-                        )
-                    )
-                ),
-                MapSource.ARCGIS
-            )
+        assertTrue(multiZoom in 10.0..17.0)
+        val (camWx, camWy) = MapProjection.latLonToWorldPx(
+            multiCenter.latitude,
+            multiCenter.longitude,
+            multiZoom,
+            tileSizePx
         )
-        assertEquals(2, fencesJson.length())
-        val circleFence = fencesJson.getJSONObject(0)
-        assertEquals("Home", circleFence.getString("name"))
-        assertFalse(circleFence.getBoolean("isPolygon"))
-        assertEquals(300, circleFence.getInt("radiusMeters"))
-        assertEquals(wgsPoint.longitude, circleFence.getJSONObject("center").getDouble("lon"), 1e-9)
-        assertEquals(wgsPoint.latitude, circleFence.getJSONObject("center").getDouble("lat"), 1e-9)
+        val (nwX, nwY) = MapProjection.latLonToWorldPx(39.95, 116.30, multiZoom, tileSizePx)
+        val (seX, seY) = MapProjection.latLonToWorldPx(39.85, 116.50, multiZoom, tileSizePx)
+        val screenMinX = 1080.0 / 2.0 + (nwX - camWx)
+        val screenMaxX = 1080.0 / 2.0 + (seX - camWx)
+        val screenMinY = 1800.0 / 2.0 + (nwY - camWy)
+        val screenMaxY = 1800.0 / 2.0 + (seY - camWy)
+        assertTrue(screenMinX >= 59.0 && screenMaxX <= 1021.0)
+        assertTrue(screenMinY >= 199.0 && screenMaxY <= 1401.0)
+    }
 
-        val polyFence = fencesJson.getJSONObject(1)
-        assertEquals("Zone", polyFence.getString("name"))
-        assertTrue(polyFence.getBoolean("isPolygon"))
-        assertEquals(3, polyFence.getJSONArray("vertices").length())
+    @Test
+    fun tileUrlBuildersAndCoordinateValidationCoverAllSources() {
+        assertEquals("0", bingQuadKey(1, 0, 0))
+        assertEquals("3", bingQuadKey(1, 1, 1))
+        assertEquals("13210", bingQuadKey(5, 26, 12))
+        assertEquals(19, tmsY(5, 12))
 
-        val speedsJson = JSONArray(serializeSpeedsJson(listOf(0, 45, 110)))
-        assertEquals(3, speedsJson.length())
-        assertEquals(45, speedsJson.getInt(1))
+        val amapStd = buildTileLayerSpecs(MapSource.AMAP, satellite = false, traffic = true)
+        assertEquals(2, amapStd.size)
+        assertFalse(amapStd[0].isOptionalOverlay)
+        assertTrue(amapStd[0].urlFor(15, 26978, 12422).contains("webrd0"))
+        assertTrue(amapStd[0].urlFor(15, 26978, 12422).contains("style=8"))
+        assertTrue(amapStd[1].isOptionalOverlay)
+        assertEquals(7, amapStd[1].minZoom)
+        assertTrue(amapStd[1].urlFor(15, 26978, 12422).contains("traffictile"))
 
-        val labelsJson = JSONObject(serializeLabelsJson(mapOf("start" to "起点", "end" to "终点")))
-        assertEquals("起点", labelsJson.getString("start"))
-        assertEquals("终点", labelsJson.getString("end"))
+        val amapSat = buildTileLayerSpecs(MapSource.AMAP, satellite = true, traffic = false)
+        assertEquals(2, amapSat.size)
+        assertTrue(amapSat[0].urlFor(15, 26978, 12422).contains("style=6"))
+        assertTrue(amapSat[1].isOptionalOverlay)
+        assertTrue(amapSat[1].urlFor(15, 26978, 12422).contains("scl=1"))
+
+        val tencentSat = buildTileLayerSpecs(MapSource.TENCENT, satellite = true, traffic = false)
+        assertEquals(2, tencentSat.size)
+        assertTrue(tencentSat[0].urlFor(5, 26, 12).endsWith("/26_19.jpg"))
+        assertTrue(tencentSat[1].isOptionalOverlay)
+        assertTrue(tencentSat[1].urlFor(5, 26, 12).contains("y=19"))
+
+        val tianmap = buildTileLayerSpecs(
+            MapSource.TIANMAP,
+            satellite = false,
+            traffic = false,
+            tianmapKey = "test key+1"
+        )
+        assertEquals(2, tianmap.size)
+        assertTrue(tianmap[0].urlFor(5, 26, 12).contains("vec_w/wmts"))
+        assertTrue(tianmap[0].urlFor(5, 26, 12).contains("tk=test+key%2B1"))
+        assertTrue(tianmap[1].isOptionalOverlay)
+        assertTrue(tianmap[1].urlFor(5, 26, 12).contains("cva_w/wmts"))
+
+        val bingSat = buildTileLayerSpecs(MapSource.BING, satellite = true, traffic = false)
+        assertEquals(1, bingSat.size)
+        assertTrue(bingSat[0].urlFor(5, 26, 12).contains("/tiles/h13210.jpeg"))
+
+        val arcgisSat = buildTileLayerSpecs(MapSource.ARCGIS, satellite = true, traffic = false)
+        assertEquals(2, arcgisSat.size)
+        assertTrue(arcgisSat[0].urlFor(5, 26, 12).contains("World_Imagery/MapServer/tile/5/12/26"))
+        assertTrue(arcgisSat[1].isOptionalOverlay)
+
+        val osm = buildTileLayerSpecs(MapSource.OSM, satellite = false, traffic = false)
+        assertEquals(1, osm.size)
+        assertEquals(19, osm[0].maxZoom)
+        assertEquals("https://tile.openstreetmap.org/5/26/12.png", osm[0].urlFor(5, 26, 12))
+
+        val googleSat = buildTileLayerSpecs(MapSource.GOOGLE, satellite = true, traffic = false)
+        assertEquals(1, googleSat.size)
+        assertTrue(googleSat[0].urlFor(5, 26, 12).contains("lyrs=y"))
+
+        assertTrue(isValidMapCoordinate(39.9042, 116.4074))
+        assertFalse(isValidMapCoordinate(Double.NaN, 116.0))
+        assertFalse(isValidMapCoordinate(89.0, 116.0))
+        assertFalse(isValidMapCoordinate(39.0, 181.0))
     }
 }

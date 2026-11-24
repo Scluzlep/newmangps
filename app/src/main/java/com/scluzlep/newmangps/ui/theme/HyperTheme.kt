@@ -10,6 +10,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.darkColorScheme as miuixDarkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme as miuixLightColorScheme
 
 // Xiaomi HyperOS Color Palette
 val HyperBlue = Color(0xFF007DFF)
@@ -43,13 +46,28 @@ private val LightColorScheme = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE5F1FF),
     onPrimaryContainer = HyperBlueVariant,
+    secondary = HyperBlue,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE5F1FF),
+    onSecondaryContainer = HyperBlueVariant,
+    tertiary = HyperGreen,
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFE6F8EE),
+    onTertiaryContainer = HyperGreen,
     background = HyperBackgroundLight,
     onBackground = HyperTextPrimaryLight,
     surface = HyperSurfaceLight,
     onSurface = HyperTextPrimaryLight,
     surfaceVariant = HyperCardLight,
     onSurfaceVariant = HyperTextSecondaryLight,
-    outline = HyperCardBorderLight
+    surfaceTint = Color.Transparent,
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF8F9FB),
+    surfaceContainer = Color(0xFFF4F6F9),
+    surfaceContainerHigh = Color(0xFFEEF1F5),
+    surfaceContainerHighest = Color(0xFFE5E7EB),
+    outline = HyperCardBorderLight,
+    outlineVariant = HyperCardBorderLight
 )
 
 private val DarkColorScheme = darkColorScheme(
@@ -57,13 +75,28 @@ private val DarkColorScheme = darkColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFF00448A),
     onPrimaryContainer = Color.White,
+    secondary = HyperBlue,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFF153459),
+    onSecondaryContainer = Color.White,
+    tertiary = HyperGreen,
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFF123624),
+    onTertiaryContainer = HyperGreen,
     background = HyperBackgroundDark,
     onBackground = HyperTextPrimaryDark,
     surface = HyperSurfaceDark,
     onSurface = HyperTextPrimaryDark,
     surfaceVariant = HyperCardDark,
     onSurfaceVariant = HyperTextSecondaryDark,
-    outline = HyperCardBorderDark
+    surfaceTint = Color.Transparent,
+    surfaceContainerLowest = Color(0xFF0C0D0E),
+    surfaceContainerLow = Color(0xFF141518),
+    surfaceContainer = Color(0xFF191A1D),
+    surfaceContainerHigh = Color(0xFF222428),
+    surfaceContainerHighest = Color(0xFF2C2F35),
+    outline = HyperCardBorderDark,
+    outlineVariant = HyperCardBorderDark
 )
 
 val HyperTypography = Typography(
@@ -117,11 +150,32 @@ fun HyperTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val miuixColors = if (darkTheme) {
+        miuixDarkColorScheme(
+            primary = HyperBlue,
+            primaryVariant = HyperBlueVariant,
+            background = HyperBackgroundDark,
+            surface = HyperSurfaceDark,
+            surfaceContainer = HyperSurfaceDark,
+            dividerLine = HyperCardBorderDark
+        )
+    } else {
+        miuixLightColorScheme(
+            primary = HyperBlue,
+            primaryVariant = HyperBlueVariant,
+            background = HyperBackgroundLight,
+            surface = HyperSurfaceLight,
+            surfaceContainer = HyperSurfaceLight,
+            dividerLine = HyperCardBorderLight
+        )
+    }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = HyperTypography,
-        content = content
-    )
+    MiuixTheme(colors = miuixColors) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = HyperTypography,
+            content = content
+        )
+    }
 }
 

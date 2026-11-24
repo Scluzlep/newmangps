@@ -6,8 +6,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +17,7 @@ import com.scluzlep.newmangps.data.model.DevicePosition
 import com.scluzlep.newmangps.data.repository.NewsmyRepository
 import com.scluzlep.newmangps.ui.AppLanguage
 import com.scluzlep.newmangps.ui.LocalAppLanguage
+import com.scluzlep.newmangps.ui.theme.AppIcons
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -90,7 +89,7 @@ fun MonitoringScreen(
                                 if (expanded[key] == true) IconButton(onClick = { refresh(key) }) {
                                     Icon(Icons.Default.Refresh, language.text("Refresh", "刷新") + label)
                                 }
-                                Icon(if (expanded[key] == true) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                Icon(if (expanded[key] == true) AppIcons.ExpandLess else AppIcons.ExpandMore,
                                     contentDescription = null)
                             }
                         },

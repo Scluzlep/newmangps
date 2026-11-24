@@ -6,7 +6,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -279,7 +286,7 @@ fun DeviceDashboardScreen(
             ActionCard(
                 title = tr("设备列表"),
                 subtitle = language.text("FindFilterDevices", "查找与筛选账户设备"),
-                icon = Icons.Default.Devices,
+                icon = AppIcons.Devices,
                 color = HyperBlue,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onNavigateDeviceList
@@ -289,7 +296,7 @@ fun DeviceDashboardScreen(
             ActionCard(
                 title = language.text("RealtimeMonitoring", "实时监控"),
                 subtitle = language.text("DeviceDiagnostics", "位置、诊断与设备数据"),
-                icon = Icons.Default.MonitorHeart,
+                icon = AppIcons.MonitorHeart,
                 color = HyperGreen,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onNavigateMonitoring
@@ -304,7 +311,7 @@ fun DeviceDashboardScreen(
                 ActionCard(
                     title = tr("实时地图"),
                     subtitle = language.text("ViewDeviceLocation", "查看设备位置"),
-                    icon = Icons.Default.Navigation,
+                    icon = AppIcons.Navigation,
                     color = HyperBlue,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateTracking
@@ -312,7 +319,7 @@ fun DeviceDashboardScreen(
                 ActionCard(
                     title = tr("轨迹回放"),
                     subtitle = language.text("Recent48Hours", "近48小时历史"),
-                    icon = Icons.Default.History,
+                    icon = AppIcons.History,
                     color = HyperGreen,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateTrackHistory
@@ -332,7 +339,7 @@ fun DeviceDashboardScreen(
                         fences.isNotEmpty() -> "已设「${fences.first().name}」"
                         else -> language.text("FenceNotSet", "未设围栏")
                     },
-                    icon = Icons.Default.Shield,
+                    icon = AppIcons.Shield,
                     color = HyperYellow,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateGeofence
@@ -340,7 +347,7 @@ fun DeviceDashboardScreen(
                 ActionCard(
                     title = tr("设备指令"),
                     subtitle = language.text("LocationDeviceSettings", "定位与设备设置"),
-                    icon = Icons.Default.SettingsRemote,
+                    icon = AppIcons.SettingsRemote,
                     color = Color(0xFFA55EEA),
                     modifier = Modifier.weight(1f),
                     onClick = { onDeviceCommand("settings") }
@@ -351,7 +358,7 @@ fun DeviceDashboardScreen(
             ActionCard(
                 title = tr("历史告警"),
                 subtitle = language.text("ViewAlarmHistory", "查看设备报警记录"),
-                icon = Icons.Default.NotificationsActive,
+                icon = AppIcons.NotificationsActive,
                 color = HyperRed,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onNavigateAlarms
@@ -361,7 +368,7 @@ fun DeviceDashboardScreen(
             ActionCard(
                 title = language.text("PhotosRecordings", "照片与录音"),
                 subtitle = language.text("ViewDeviceMedia", "查看设备上传的媒体"),
-                icon = Icons.Default.PhotoLibrary,
+                icon = AppIcons.PhotoLibrary,
                 color = HyperGreen,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onNavigateMedia
@@ -371,7 +378,7 @@ fun DeviceDashboardScreen(
             ActionCard(
                 title = tr("设备报表"),
                 subtitle = language.text("ReportSummary", "行驶、停车、里程、油量与温度"),
-                icon = Icons.Default.BarChart,
+                icon = AppIcons.BarChart,
                 color = HyperBlue,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onNavigateReports
@@ -393,7 +400,7 @@ fun DeviceDashboardScreen(
             ActionCard(
                 title = tr("面积测量"),
                 subtitle = language.text("AreaSummary", "绘制、保存和查看形状"),
-                icon = Icons.Default.SquareFoot,
+                icon = AppIcons.SquareFoot,
                 color = HyperGreen,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onNavigateArea
@@ -403,7 +410,7 @@ fun DeviceDashboardScreen(
             ActionCard(
                 title = language.text("RadarFindDevice", "雷达找设备"),
                 subtitle = language.text("RadarSummary", "通过微信蓝牙查找设备"),
-                icon = Icons.Default.Radar,
+                icon = AppIcons.Radar,
                 color = HyperGreen,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onOpenRadar
@@ -435,7 +442,7 @@ fun DeviceDashboardScreen(
                     ActionCard(
                         title = tr("流量卡"),
                         subtitle = language.text("SimProviderSummary", "查询 SIM 与运营商服务"),
-                        icon = Icons.Default.SimCard,
+                        icon = AppIcons.SimCard,
                         color = HyperBlue,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = onSimCard
@@ -454,7 +461,7 @@ fun DeviceDashboardScreen(
                 ActionCard(
                     title = language.text("DeviceIcon", "设备图标"),
                     subtitle = language.text("DeviceIconSummary", "更换地图和列表标记"),
-                    icon = Icons.Default.Image,
+                    icon = AppIcons.Image,
                     color = HyperGreen,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onDeviceIcon
@@ -464,7 +471,7 @@ fun DeviceDashboardScreen(
                     ActionCard(
                         title = language.text("PublicDeviceInfo", "找设备公开信息"),
                         subtitle = language.text("PublicDeviceSummary", "编辑扫码展示的联系人和留言"),
-                        icon = Icons.Default.ContactPage,
+                        icon = AppIcons.ContactPage,
                         color = HyperBlue,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = onPublicDeviceInfo
@@ -474,7 +481,7 @@ fun DeviceDashboardScreen(
                 ActionCard(
                     title = language.text("DeviceParameters", "设备参数"),
                     subtitle = language.text("DeviceParametersSummary", "邮箱、初始里程与油箱标定"),
-                    icon = Icons.Default.Tune,
+                    icon = AppIcons.Tune,
                     color = HyperBlue,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onDeviceParameters
@@ -484,7 +491,7 @@ fun DeviceDashboardScreen(
                     ActionCard(
                         title = tr("室内位置修正"),
                         subtitle = language.text("IndoorOffsetSummary", "将室内误差位置映射到实际地点"),
-                        icon = Icons.Default.LocationSearching,
+                        icon = AppIcons.LocationSearching,
                         color = HyperGreen,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = onIndoorOffset
@@ -494,7 +501,7 @@ fun DeviceDashboardScreen(
                 ActionCard(
                     title = language.text("WifiMarks", "Wi-Fi 标记"),
                     subtitle = language.text("WifiMarksSummary", "扫描、保存和管理定位 Wi-Fi"),
-                    icon = Icons.Default.Wifi,
+                    icon = AppIcons.Wifi,
                     color = HyperGreen,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onWifiMarks

@@ -19,7 +19,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -86,6 +87,7 @@ fun TrackingMapScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val language = LocalAppLanguage.current
+    LaunchedEffect(Unit) { focusManager.clearFocus() }
     var phonePoint by remember { mutableStateOf<CoordinateTransform.LatLng?>(null) }
     var focusRevision by remember { mutableIntStateOf(0) }
     fun locatePhone() {
@@ -179,11 +181,11 @@ fun TrackingMapScreen(
                 },
                 actions = {
                     IconButton(onClick = { showLayerDialog = true }) {
-                        Icon(Icons.Default.Layers, contentDescription = language.text("MapSource", "地图源"))
+                        Icon(AppIcons.Layers, contentDescription = language.text("MapSource", "地图源"))
                     }
                     Box {
                         IconButton(onClick = { navigationMenu = true }, enabled = validPosition != null) {
-                            Icon(Icons.Default.Navigation, contentDescription = language.text("Navigation", "导航到设备"))
+                            Icon(AppIcons.Navigation, contentDescription = language.text("Navigation", "导航到设备"))
                         }
                         DropdownMenu(expanded = navigationMenu, onDismissRequest = { navigationMenu = false }) {
                             listOf("amap" to language.text("GaodeMap", "高德地图"),
@@ -231,7 +233,7 @@ fun TrackingMapScreen(
                 markerIconUrl = if (focusPoint != null || phonePoint != null) "" else devices.firstOrNull {
                     it.teid == selectedTeid
                 }?.iconId?.let(iconUrlFor).orEmpty(),
-                controlsTopPx = 12,
+                controlsTopPx = 78,
                 otherMarkers = (if (showAllDevices) otherPositions else listOfNotNull(validPosition)).filter {
                     (focusPoint != null || phonePoint != null || it.teid != selectedTeid) && it.hasValidWgsCoords()
                 }.distinctBy { it.teid }.map { other ->
@@ -260,12 +262,12 @@ fun TrackingMapScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 MapFloatingActionButton(
-                    icon = Icons.Default.Layers,
+                    icon = AppIcons.Layers,
                     contentDescription = language.text("MapSource", "地图源"),
                     onClick = { showLayerDialog = true }
                 )
                 MapFloatingActionButton(
-                    icon = Icons.Default.MyLocation,
+                    icon = AppIcons.MyLocation,
                     contentDescription = language.text("PhoneLocation", "手机当前位置"),
                     active = phonePoint != null,
                     onClick = {
@@ -276,7 +278,7 @@ fun TrackingMapScreen(
                     }
                 )
                 MapFloatingActionButton(
-                    icon = Icons.Default.DirectionsCar,
+                    icon = AppIcons.DirectionsCar,
                     contentDescription = language.text("ReturnDeviceLocation", "返回设备位置"),
                     onClick = {
                         phonePoint = null
@@ -286,7 +288,7 @@ fun TrackingMapScreen(
                 )
                 if (devices.size > 1) {
                     MapFloatingActionButton(
-                        icon = Icons.Default.Groups,
+                        icon = AppIcons.Groups,
                         contentDescription = if (showAllDevices) language.text("CurrentDeviceOnly", "仅当前设备")
                         else language.text("AllDevices", "全部设备"),
                         active = showAllDevices,
@@ -295,7 +297,7 @@ fun TrackingMapScreen(
                 }
                 if (fences.isNotEmpty()) {
                     MapFloatingActionButton(
-                        icon = Icons.Default.Shield,
+                        icon = AppIcons.Shield,
                         contentDescription = language.text("ShowFences", "显示围栏"),
                         active = showFenceOverlay,
                         onClick = { showFenceOverlay = !showFenceOverlay }
@@ -315,7 +317,7 @@ fun TrackingMapScreen(
                     shape = RoundedCornerShape(26.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                     shadowElevation = 6.dp,
-                    tonalElevation = 2.dp,
+                    tonalElevation = 0.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -380,7 +382,7 @@ fun TrackingMapScreen(
                         shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
                         shadowElevation = 6.dp,
-                        tonalElevation = 2.dp,
+                        tonalElevation = 0.dp,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
@@ -422,7 +424,7 @@ fun TrackingMapScreen(
                                         }
                                     }
                                     IconButton(onClick = { onSavePlace(place) }) {
-                                        Icon(Icons.Default.BookmarkAdd, contentDescription = language.text("SavePlace", "收藏地点"))
+                                        Icon(AppIcons.BookmarkAdd, contentDescription = language.text("SavePlace", "收藏地点"))
                                     }
                                 }
                             }
@@ -509,7 +511,7 @@ fun TrackingMapScreen(
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
-                                    if (detailsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    if (detailsExpanded) AppIcons.ExpandLess else AppIcons.ExpandMore,
                                     contentDescription = if (detailsExpanded) language.text("CollapseDeviceInfo", "收起设备信息")
                                     else language.text("ExpandDeviceInfo", "展开设备信息")
                                 )
@@ -522,7 +524,7 @@ fun TrackingMapScreen(
                             onClick = onReturnToDevice,
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
-                            Icon(Icons.Default.DirectionsCar, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(AppIcons.DirectionsCar, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(language.text("ReturnToDevice", "返回设备"))
                         }
@@ -638,7 +640,7 @@ private fun MapFloatingActionButton(
         color = if (active) HyperBlue else MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
         contentColor = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
         shadowElevation = 4.dp,
-        tonalElevation = 2.dp,
+        tonalElevation = 0.dp,
         modifier = Modifier.size(42.dp)
     ) {
         Box(contentAlignment = Alignment.Center) {

@@ -20,13 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LockReset
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Refresh
+import com.scluzlep.newmangps.ui.theme.AppIcons
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.AlertDialog
@@ -170,11 +166,11 @@ fun AccountManagementScreen(
         ) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { showPassword = true }) {
-                    Icon(Icons.Default.LockReset, contentDescription = null)
+                    Icon(AppIcons.LockReset, contentDescription = null)
                     Text(tr("修改密码"), Modifier.padding(start = 6.dp))
                 }
                 TextButton(onClick = { confirmLogout = true }) {
-                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                    Icon(AppIcons.Logout, contentDescription = null)
                     Text(tr("退出登录"), Modifier.padding(start = 6.dp))
                 }
             }
@@ -202,7 +198,7 @@ fun AccountManagementScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(tr("子账号"), style = MaterialTheme.typography.titleLarge)
                     TextButton(onClick = { editTarget = null; showAdd = true }) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = null)
+                        Icon(AppIcons.PersonAdd, contentDescription = null)
                         Text(tr("添加"))
                     }
                 }
@@ -225,13 +221,13 @@ fun AccountManagementScreen(
                                     Icon(Icons.Default.Edit, contentDescription = language.text("EditSubUser", "编辑子账号"))
                                 }
                                 IconButton(onClick = { onManagePrivileges(user.username) }) {
-                                    Icon(Icons.Default.AdminPanelSettings, contentDescription = language.text("SubUserPrivileges", "子账号权限"))
+                                    Icon(AppIcons.AdminPanelSettings, contentDescription = language.text("SubUserPrivileges", "子账号权限"))
                                 }
                                 TextButton(onClick = { assignUserTarget = user.username }) { Text(tr("分配用户")) }
                                 if (devices.isNotEmpty()) {
                                     Box {
                                         TextButton(onClick = { deviceMenu = true }) {
-                                            Icon(Icons.Default.Devices, contentDescription = null)
+                                            Icon(AppIcons.Devices, contentDescription = null)
                                             Text(tr("分配设备"), Modifier.padding(start = 6.dp))
                                         }
                                         DropdownMenu(expanded = deviceMenu, onDismissRequest = { deviceMenu = false }) {

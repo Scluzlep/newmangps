@@ -8,7 +8,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -16,6 +15,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.scluzlep.newmangps.data.model.DeviceSummary
 import com.scluzlep.newmangps.ui.LocalAppLanguage
+import com.scluzlep.newmangps.ui.theme.AppIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,7 +41,7 @@ fun DeviceManagementScreen(
             actions = {
                 IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, language.text("Refresh", "刷新")) }
                 IconButton(onClick = { adding = true }) { Icon(Icons.Default.Add, language.text("AddCar", "添加设备")) }
-                IconButton(onClick = onBulkImport) { Icon(Icons.Default.FileUpload, language.text("BatchDeviceImport", "批量导入")) }
+                IconButton(onClick = onBulkImport) { Icon(AppIcons.FileUpload, language.text("BatchDeviceImport", "批量导入")) }
             }
         )
     }) { padding ->

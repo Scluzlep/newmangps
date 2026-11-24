@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.scluzlep.newmangps.data.repository.NewsmyRepository
 import com.scluzlep.newmangps.ui.LocalAppLanguage
+import com.scluzlep.newmangps.ui.theme.AppIcons
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,7 +51,7 @@ fun SupportScreen(repository: NewsmyRepository, onBack: () -> Unit) {
             if (url != null) item {
                 Button(onClick = {
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                }) { Icon(Icons.Default.OpenInNew, contentDescription = null); Text(language.text("OpenAfterSales", "打开售后服务")) }
+                }) { Icon(AppIcons.OpenInNew, contentDescription = null); Text(language.text("OpenAfterSales", "打开售后服务")) }
             }
             items(fields.filterValues(String::isNotBlank).filterKeys { it != "strAfterSaleURL" }.toList()) { (key, value) ->
                 ListItem(headlineContent = { Text(when (key) {

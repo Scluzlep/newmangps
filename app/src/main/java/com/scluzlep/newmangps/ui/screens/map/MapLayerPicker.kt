@@ -15,10 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.SatelliteAlt
-import androidx.compose.material.icons.filled.Traffic
+import com.scluzlep.newmangps.ui.theme.AppIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -65,7 +62,7 @@ fun MapLayerDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         icon = {
             Icon(
-                imageVector = Icons.Default.Layers,
+                imageVector = AppIcons.Layers,
                 contentDescription = null,
                 tint = HyperBlue
             )
@@ -103,7 +100,7 @@ fun MapLayerDialog(
                         ),
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Map,
+                                imageVector = AppIcons.Map,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -128,7 +125,7 @@ fun MapLayerDialog(
                         ),
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.SatelliteAlt,
+                                imageVector = AppIcons.SatelliteAlt,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -164,7 +161,7 @@ fun MapLayerDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Traffic,
+                                    imageVector = AppIcons.Traffic,
                                     contentDescription = null,
                                     tint = HyperBlue,
                                     modifier = Modifier.size(20.dp)
